@@ -17,8 +17,9 @@ function App() {
   const STUDY_NOTES_STYLE = `You are an assistant that creates clear, structured study notes.\n\nInput: A transcript of a lecture, book chapter, or video.\n\nOutput: Summarized notes that are concise, organized, and easy to revise later.\n\nFormatting Rules:\n- Use short bullet points, not long paragraphs.\n- Capture only the key ideas, arguments, or facts.\n- Highlight definitions, formulas, or important terms in **bold**.\n- If a process or sequence is explained, number the steps (1, 2, 3...).\n- For comparisons, use a table format.\n- Add a short “Key Takeaways” section at the end with the 3–5 most important insights.\n\nKeep the language simple and direct.`;
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState('');
-  const [summary, setSummary] = useState('');
-  const [summarizing, setSummarizing] = useState(false);
+  const [importSummary, setImportSummary] = useState(''); // For Import view only
+  const [importSummarizing, setImportSummarizing] = useState(false);
+  // Removed unused transcriptsSummary and transcriptsSummarizing states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -27,7 +28,7 @@ function App() {
   const [recordings, setRecordings] = useState([]); // Array to store multiple recordings
   const [savedRecordings, setSavedRecordings] = useState([]); // Array to store saved recordings from backend
   const [recordingType, setRecordingType] = useState('microphone'); // 'microphone' or 'system'
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false); // legacy; import now uses its own tab
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
@@ -55,6 +56,35 @@ function App() {
     } catch (err) {
       console.error('Failed to fetch saved recordings:', err);
     }
+  };
+
+  // Transcripts management helpers
+  const clearAllTranscripts = () => {
+    setRecordings([]);
+  };
+
+  const clearRecordingSummary = (recordingId) => {
+    setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: '' } : r));
+  };
+
+  const clearSavedRecordingSummary = (filename) => {
+    setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: '' } : r));
+  };
+
+  const clearAllSummaries = () => {
+    setRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
+    setSavedRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
+  };
+
+  const clearImportSummary = () => {
+    setImportSummary('');
+  };
+
+  // Clear current imported file/transcript/summary
+  const clearImportedTranscript = () => {
+    setFile(null);
+    setTranscript('');
+    setImportSummary('');
   };
 
   // Ingest: attach file for chat
@@ -140,22 +170,22 @@ function App() {
     }
   };
 
-  // Summarize current top-level transcript using backend /summarize (Ollama)
-  const summarizeTranscript = async (style = '') => {
+  // Summarize current top-level transcript using backend /summarize (Ollama) - Import view
+  const summarizeImportTranscript = async (style = '') => {
     if (!transcript || transcript.trim() === '') {
       setError('No transcript to summarize');
       return;
     }
     try {
-      setSummarizing(true);
+      setImportSummarizing(true);
       setError('');
       const s = await _summarizeText(transcript, style);
-      setSummary(s);
+      setImportSummary(s); // Import view summary
     } catch (err) {
       console.error('Summarization error:', err);
       setError(err.response?.data?.error || 'Failed to summarize. Ensure Ollama is running (port 11434) and model is available.');
     } finally {
-      setSummarizing(false);
+      setImportSummarizing(false);
     }
   };
 
@@ -197,6 +227,8 @@ function App() {
       if (audioTypes.includes(selectedFile.type) || selectedFile.name.match(/\.(wav|mp3|m4a|ogg|flac)$/i)) {
         setFile(selectedFile);
         setError("");
+        // Ensure user is on Import view when a file is chosen
+        setCurrentView('import');
       } else {
         setError("Please select a valid audio file (wav, mp3, m4a, ogg, flac)");
         setFile(null);
@@ -485,6 +517,8 @@ function App() {
     setLoading(true);
     setError("");
     setTranscript("");
+    // Make sure we are on the Import view during import flow
+    setCurrentView('import');
 
     try {
       const formData = new FormData();
@@ -500,7 +534,7 @@ function App() {
       });
       
       setTranscript(transcriptRes.data.content);
-      setSummary(''); // clear previous summary
+      setImportSummary(''); // clear previous import summary
     } catch (err) {
       console.error("Upload error:", err);
       setError(err.response?.data?.error || "Failed to transcribe audio. Make sure the backend is running.");
@@ -513,7 +547,7 @@ function App() {
     <div className="otter-shell">
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
       <Topbar 
-        onImportClick={() => setShowImportModal(true)}
+        onImportClick={() => setCurrentView('import')}
         onRecordClick={() => setShowRecordModal(true)}
       />
       <main className="otter-main">
@@ -527,6 +561,23 @@ function App() {
 
           {currentView === 'transcripts' && (
             <>
+              {/* Toolbar for transcripts management */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={clearAllTranscripts}
+                  title="Remove all in-session recordings"
+                >
+                  🧹 Clear All Transcripts
+                </button>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={clearAllSummaries}
+                  title="Remove all generated summaries"
+                >
+                  🧽 Clear All Summaries
+                </button>
+              </div>
               {/* In-session recordings as feed cards */}
               {recordings.map((recording, index) => (
                 <>
@@ -573,6 +624,13 @@ function App() {
                               title="Study Notes"
                             >
                               {recording.summarizing ? '⏳' : '📘'}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); clearRecordingSummary(recording.id); }}
+                              className="btn btn-secondary btn-sm"
+                              title="Clear this summary"
+                            >
+                              🧽
                             </button>
                           </>
                         )}
@@ -644,6 +702,13 @@ function App() {
                             >
                               {recording.summarizing ? '⏳' : '📘'}
                             </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); clearSavedRecordingSummary(recording.filename); }}
+                              className="btn btn-secondary btn-sm"
+                              title="Clear this summary"
+                            >
+                              🧽
+                            </button>
                           </>
                         )}
                         <button 
@@ -675,13 +740,52 @@ function App() {
                 </>
               ))}
 
-              {/* Show transcript as feed card if available */}
+              
+
+              
+            </>
+          )}
+
+          {currentView === 'import' && (
+            <>
+              {/* Upload panel for importing audio and transcribing */}
+              <UploadPanel 
+                file={file}
+                onFileChange={handleFileChange}
+                onTranscribe={transcribeFile}
+                loading={loading}
+              />
+
+              {/* Quick clear of current import */}
+              {(file || transcript) && (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    onClick={clearImportedTranscript}
+                    className="btn btn-secondary btn-sm"
+                    style={{ color: '#b91c1c' }}
+                    title="Delete imported file/transcript"
+                  >
+                    🗑️ Clear Import
+                  </button>
+                </div>
+              )}
+
+              {/* Import Transcript as feed card */}
               {transcript && transcript !== 'Transcribing...' && (
                 <FeedCard
-                  avatar="📝"
-                  title="Transcript Results"
-                  subtitle="AI-generated transcription"
+                  avatar="📥"
+                  title="Import Transcript"
+                  subtitle={file ? `Imported: ${file.name}` : 'Imported file'}
                   fullText={transcript}
+                  metadata={[
+                    file ? `${(file.size / 1024).toFixed(1)} KB` : undefined,
+                    new Date().toLocaleString()
+                  ].filter(Boolean)}
+                  thumbnail={
+                    <div style={{background: '#e0f2fe', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#0369a1'}}>
+                      📄
+                    </div>
+                  }
                   actions={
                     <>
                       <button 
@@ -690,41 +794,59 @@ function App() {
                       >
                         📋 Copy
                       </button>
-                      <button
-                        onClick={() => summarizeTranscript()}
-                        className="btn btn-primary btn-sm"
-                        disabled={summarizing}
-                        title="Generic summary"
+                      <button 
+                        onClick={clearImportedTranscript}
+                        className="btn btn-secondary btn-sm"
+                        style={{color: '#b91c1c'}}
+                        title="Delete imported transcript"
                       >
-                        {summarizing ? '⏳' : '🧠'} Summarize
+                        🗑️ Delete
                       </button>
                       <button
-                        onClick={() => summarizeTranscript(STUDY_NOTES_STYLE)}
+                        onClick={() => summarizeImportTranscript()}
+                        className="btn btn-primary btn-sm"
+                        disabled={importSummarizing}
+                        title="Generic summary"
+                      >
+                        {importSummarizing ? '⏳' : '🧠'} Summarize
+                      </button>
+                      <button
+                        onClick={() => summarizeImportTranscript(STUDY_NOTES_STYLE)}
                         className="btn btn-secondary btn-sm"
-                        disabled={summarizing}
+                        disabled={importSummarizing}
                         title="Study Notes"
                       >
-                        {summarizing ? '⏳' : '📘'} Study Notes
+                        {importSummarizing ? '⏳' : '📘'} Study Notes
                       </button>
                     </>
                   }
                 />
               )}
 
-              {/* Show summary as feed card if available */}
-              {summary && (
+              {/* Show summary as feed card in Import view */}
+              {importSummary && (
                 <FeedCard
                   avatar="🧠"
                   title="Summary Results"
                   subtitle="Concise study notes"
-                  fullText={summary}
+                  fullText={importSummary}
                   actions={
-                    <button 
-                      onClick={() => copyToClipboard(summary)}
-                      className="btn btn-outline btn-sm"
-                    >
-                      📋 Copy
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => copyToClipboard(importSummary)}
+                        className="btn btn-outline btn-sm"
+                      >
+                        📋 Copy
+                      </button>
+                      <button 
+                        onClick={clearImportSummary}
+                        className="btn btn-secondary btn-sm"
+                        style={{color: '#b91c1c'}}
+                        title="Clear summary"
+                      >
+                        🗑️ Clear
+                      </button>
+                    </>
                   }
                 />
               )}

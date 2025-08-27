@@ -19,7 +19,13 @@ export default function Sidebar({ currentView = 'chat', onNavigate = () => {} })
         >
           📝 <span>Transcripts</span>
         </button>
-        <button className="nav-btn" title="Settings">⚙️ <span>Settings</span></button>
+        <button
+          className={`nav-btn ${currentView === 'import' ? 'active' : ''}`}
+          title="Import Transcript"
+          onClick={() => onNavigate('import')}
+        >
+          📥 <span>Import Transcript</span>
+        </button>
       </nav>
     </aside>
   );

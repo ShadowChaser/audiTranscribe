@@ -1,1216 +1,88 @@
-import { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import jsPDF from 'jspdf';
-import './App.css';
-import RecordPanel from './components/RecordPanel.jsx';
-import UploadPanel from './components/UploadPanel.jsx';
-import SavedRecordings from './components/SavedRecordings.jsx';
-import TranscriptCard from './components/TranscriptCard.jsx';
-import SummaryCard from './components/SummaryCard.jsx';
-import Sidebar from './components/Sidebar.jsx';
-import Topbar from './components/Topbar.jsx';
-import Modal from './components/Modal.jsx';
-import FeedCard from './components/FeedCard.jsx';
-import ChatInput from './components/ChatInput.jsx';
+import { useState, useEffect } from "react";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import "./App.css";
+
+// Components
+import RecordPanel from "./components/RecordPanel";
+import UploadPanel from "./components/UploadPanel";
+import Sidebar from "./components/Sidebar";
+import Topbar from "./components/Topbar";
+import Modal from "./components/Modal";
+import ChatInput from "./components/ChatInput";
+import TranscriptView from "./views/TranscriptView";
+import ImportView from "./views/ImportView";
+import ChatView from "./views/ChatView";
+
+// Custom Hooks
+import { useRecording } from "./hooks/useRecording";
+import { useTranscript } from "./hooks/useTranscript";
+import { useSummary } from "./hooks/useSummary";
+import { useChat } from "./hooks/useChat";
 
 function App() {
-  // Study-focused summarization template
-  const STUDY_NOTES_STYLE = `You are an assistant that creates clear, structured study notes.\n\nInput: A transcript of a lecture, book chapter, or video.\n\nOutput: Summarized notes that are concise, organized, and easy to revise later.\n\nFormatting Rules:\n- Use short bullet points, not long paragraphs.\n- Capture only the key ideas, arguments, or facts.\n- Highlight definitions, formulas, or important terms in **bold**.\n- If a process or sequence is explained, number the steps (1, 2, 3...).\n- For comparisons, use a table format.\n- Add a short “Key Takeaways” section at the end with the 3–5 most important insights.\n\nKeep the language simple and direct.`;
-  const [file, setFile] = useState(null);
-  const [transcript, setTranscript] = useState('');
-  const [importSummary, setImportSummary] = useState(''); // For Import view only
-  const [importSummarizing, setImportSummarizing] = useState(false);
-  const [editingTitles, setEditingTitles] = useState({}); // Track which titles are being edited
-  const [customTitles, setCustomTitles] = useState({}); // Store custom titles
-  // Removed unused transcriptsSummary and transcriptsSummarizing states
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [recordTimerMs, setRecordTimerMs] = useState(0);
-  const [recordings, setRecordings] = useState([]); // Array to store multiple recordings
-  const [savedRecordings, setSavedRecordings] = useState([]); // Array to store saved recordings from backend
-  const [recordingType, setRecordingType] = useState('microphone'); // 'microphone' or 'system'
-  const [showImportModal, setShowImportModal] = useState(false); // legacy; import now uses its own tab
+  // Global state
+  const [currentView, setCurrentView] = useState("chat");
+  const [error, setError] = useState("");
   const [showRecordModal, setShowRecordModal] = useState(false);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [currentView, setCurrentView] = useState('chat'); // 'chat' | 'transcripts'
-  const [sources, setSources] = useState([]); // [{id, name, type}]
   const [showPasteModal, setShowPasteModal] = useState(false);
-  const [pasteModalText, setPasteModalText] = useState('');
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const timerIntervalRef = useRef(null);
-  const startTimeRef = useRef(0);
-  const pausedAccumulatedRef = useRef(0);
+  const [pasteModalText, setPasteModalText] = useState("");
 
-  // Session recordings are kept in-memory only (no localStorage to avoid large payloads)
+  // Custom hooks
+  const recording = useRecording();
+  const transcript = useTranscript();
+  const summary = useSummary();
+  const chat = useChat();
 
-  // Fetch saved recordings on component mount
+  // Set global error from any source
   useEffect(() => {
-    fetchSavedRecordings();
-  }, []);
-
-  const fetchSavedRecordings = async () => {
-    try {
-      const response = await axios.get('http://localhost:3001/recordings');
-      setSavedRecordings(response.data.recordings);
-    } catch (err) {
-      console.error('Failed to fetch saved recordings:', err);
-    }
-  };
-
-  // Transcripts management helpers
-  const clearAllTranscripts = () => {
-    setRecordings([]);
-    toast.success('All transcripts cleared!');
-  };
-
-  const clearRecordingSummary = (recordingId) => {
-    setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: '' } : r));
-    // Clear custom title when summary is cleared
-    const titleKey = `recording_${recordingId}`;
-    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
-    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
-    toast.success('Summary cleared!');
-  };
-
-  const clearSavedRecordingSummary = (filename) => {
-    setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: '' } : r));
-    // Clear custom title when summary is cleared
-    const titleKey = `saved_${filename}`;
-    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
-    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
-    toast.success('Summary cleared!');
-  };
-
-  const clearAllSummaries = () => {
-    setRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
-    setSavedRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
-    toast.success('All summaries cleared!');
-  };
-
-  const clearImportSummary = () => {
-    setImportSummary('');
-    // Clear custom title when summary is cleared
-    const titleKey = 'import_summary';
-    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
-    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
-    toast.success('Import summary cleared!');
-  };
-
-  // Generate dynamic summary title based on content
-  const generateSummaryTitle = (summaryText) => {
-    if (!summaryText) return 'Summary Results';
-    
-    const text = summaryText.toLowerCase();
-    
-    // Educational content
-    if (text.includes('lesson') || text.includes('chapter') || text.includes('course') || text.includes('tutorial')) {
-      return 'Learning Notes';
-    }
-    // Meeting content
-    if (text.includes('meeting') || text.includes('agenda') || text.includes('action item') || text.includes('discussed')) {
-      return 'Meeting Summary';
-    }
-    // Research content
-    if (text.includes('research') || text.includes('study') || text.includes('analysis') || text.includes('findings')) {
-      return 'Research Insights';
-    }
-    // Technical content
-    if (text.includes('code') || text.includes('programming') || text.includes('software') || text.includes('technical')) {
-      return 'Technical Notes';
-    }
-    // Interview content
-    if (text.includes('interview') || text.includes('candidate') || text.includes('questions') || text.includes('responses')) {
-      return 'Interview Summary';
-    }
-    // News/Media content
-    if (text.includes('news') || text.includes('report') || text.includes('breaking') || text.includes('update')) {
-      return 'News Brief';
-    }
-    // Business content
-    if (text.includes('business') || text.includes('strategy') || text.includes('revenue') || text.includes('market')) {
-      return 'Business Summary';
-    }
-    // Default fallback
-    return 'Content Summary';
-  };
-
-  // Export summary to PDF
-  const exportToPDF = async (summaryText, title) => {
-    try {
-      const pdf = new jsPDF();
-      
-      // Add title
-      pdf.setFontSize(20);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(title, 20, 30);
-      
-      // Add timestamp
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`Generated on: ${new Date().toLocaleString()}`, 20, 40);
-      
-      // Add content
-      pdf.setFontSize(12);
-      const splitText = pdf.splitTextToSize(summaryText, 170);
-      pdf.text(splitText, 20, 60);
-      
-      // Save the PDF
-      pdf.save(`${title.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
-      toast.success('PDF exported successfully!');
-    } catch (err) {
-      console.error('PDF export error:', err);
-      toast.error('Failed to export PDF');
-    }
-  };
-
-  // Get title for summary (custom or generated)
-  const getSummaryTitle = (summaryText, id, type = 'recording') => {
-    const titleKey = `${type}_${id}`;
-    return customTitles[titleKey] || generateSummaryTitle(summaryText);
-  };
-
-  // Start editing title
-  const startEditingTitle = (id, type = 'recording') => {
-    const titleKey = `${type}_${id}`;
-    setEditingTitles(prev => ({ ...prev, [titleKey]: true }));
-  };
-
-  // Save edited title
-  const saveTitle = (id, newTitle, type = 'recording') => {
-    const titleKey = `${type}_${id}`;
-    setCustomTitles(prev => ({ ...prev, [titleKey]: newTitle.trim() || generateSummaryTitle('') }));
-    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
-    toast.success('Title updated!');
-  };
-
-  // Cancel editing title
-  const cancelEditingTitle = (id, type = 'recording') => {
-    const titleKey = `${type}_${id}`;
-    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
-  };
-
-  // Clear current imported file/transcript/summary
-  const clearImportedTranscript = () => {
-    setFile(null);
-    setTranscript('');
-    setImportSummary('');
-    toast.success('Import cleared!');
-  };
-
-  // Ingest: attach file for chat
-  const attachFileToChat = async (fileObj) => {
-    try {
-      const form = new FormData();
-      form.append('file', fileObj);
-      const res = await axios.post('http://localhost:3001/ingest/file', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
-      const { id, doc } = res.data;
-      setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
-      setError('');
-      toast.success(`File "${doc.name}" attached successfully!`);
-    } catch (e) {
-      console.error('Attach file error:', e);
-      const errorMsg = e.response?.data?.error || 'Failed to attach file for chat';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    }
-  };
-
-  // Ingest: paste text for chat
-  const pasteTextToChat = async (text) => {
-    try {
-      const res = await axios.post('http://localhost:3001/ingest/text', { text }, { timeout: 120000 });
-      const { id, doc } = res.data;
-      setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
-      setError('');
-      toast.success('Text added as source successfully!');
-    } catch (e) {
-      console.error('Paste text error:', e);
-      const errorMsg = e.response?.data?.error || 'Failed to add pasted text for chat';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    }
-  };
-
-  const removeSource = async (id) => {
-    try {
-      setSources(prev => prev.filter(s => s.id !== id));
-      // Best-effort delete on backend (ok if it fails)
-      await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
-      toast.success('Source removed successfully!');
-    } catch (e) {
-      // no-op: removing source locally is sufficient
-      console.warn('Failed to remove source on backend:', e?.message || e);
-      toast.error('Failed to remove source');
-    }
-  };
-
-  // Internal helper to call backend summarize
-  const _summarizeText = async (text, style = '') => {
-    const res = await axios.post('http://localhost:3001/summarize', { text, style }, { timeout: 120000 });
-    return res.data.summary || '';
-  };
-
-  // Chat with local AI
-  const handleChatMessage = async (message) => {
-    setChatLoading(true);
-    try {
-      // Add user message to chat
-      const userMessage = { role: 'user', content: message, timestamp: new Date() };
-      setChatMessages(prev => [...prev, userMessage]);
-
-      // Build context from available transcripts
-      const context = [
-        transcript ? `Current transcript: ${transcript}` : '',
-        recordings.length > 0 ? `Session recordings: ${recordings.map(r => r.transcript || 'No transcript').join('; ')}` : '',
-        savedRecordings.length > 0 ? `Saved recordings: ${savedRecordings.map(r => r.transcript || 'No transcript').join('; ')}` : ''
-      ].filter(Boolean).join('\n\n');
-      
-      // Send to dedicated chat endpoint
-      const response = await axios.post('http://localhost:3001/chat', { 
-        message,
-        context,
-        docIds: sources.map(s => s.id)
-      }, { timeout: 60000 });
-      
-      const aiMessage = { role: 'assistant', content: response.data.response, timestamp: new Date() };
-      setChatMessages(prev => [...prev, aiMessage]);
-      
-      // Show AI response as feed card
-      setError(''); // Clear any previous errors
-      
-    } catch (err) {
-      console.error('Chat error:', err);
-      const errorMessage = { role: 'assistant', content: 'Sorry, I\'m having trouble connecting to the AI. Please make sure Ollama is running.', timestamp: new Date() };
-      setChatMessages(prev => [...prev, errorMessage]);
-      setError('Chat service unavailable. Please ensure Ollama is running.');
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
-  // Summarize current top-level transcript using backend /summarize (Ollama) - Import view
-  const summarizeImportTranscript = async (style = '') => {
-    if (!transcript || transcript.trim() === '') {
-      setError('No transcript to summarize');
-      return;
-    }
-    try {
-      setImportSummarizing(true);
-      setError('');
-      const s = await _summarizeText(transcript, style);
-      setImportSummary(s); // Import view summary
-      toast.success('Summary generated successfully!');
-    } catch (err) {
-      console.error('Summarization error:', err);
-      const errorMsg = err.response?.data?.error || 'Failed to summarize. Ensure Ollama is running (port 11434) and model is available.';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setImportSummarizing(false);
-    }
-  };
-
-  // Summarize a specific in-session recording's transcript
-  const summarizeRecordingTranscript = async (recordingId, style = '') => {
-    const rec = recordings.find(r => r.id === recordingId);
-    if (!rec || !rec.transcript || rec.transcript === 'Transcribing...') return;
-    try {
-      // mark summarizing state on this recording
-      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: true } : r));
-      const s = await _summarizeText(rec.transcript, style);
-      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: s, summarizing: false } : r));
-      toast.success('Recording summary generated!');
-    } catch (err) {
-      console.error('Summarization error:', err);
-      const errorMsg = err.response?.data?.error || 'Failed to summarize recording.';
-      setError(errorMsg);
-      toast.error(errorMsg);
-      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: false } : r));
-    }
-  };
-
-  // Summarize a saved recording's transcript
-  const summarizeSavedRecording = async (filename, style = '') => {
-    const item = savedRecordings.find(r => r.filename === filename);
-    if (!item || !item.hasTranscript || !item.transcript) return;
-    try {
-      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: true } : r));
-      const s = await _summarizeText(item.transcript, style);
-      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: s, summarizing: false } : r));
-      toast.success('Saved recording summary generated!');
-    } catch (err) {
-      console.error('Summarization error:', err);
-      const errorMsg = err.response?.data?.error || 'Failed to summarize saved recording.';
-      setError(errorMsg);
-      toast.error(errorMsg);
-      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: false } : r));
-    }
-  };
-
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files[0];
-    if (selectedFile) {
-      const audioTypes = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/flac"];
-      if (audioTypes.includes(selectedFile.type) || selectedFile.name.match(/\.(wav|mp3|m4a|ogg|flac)$/i)) {
-        setFile(selectedFile);
-        setError("");
-        // Ensure user is on Import view when a file is chosen
-        setCurrentView('import');
-        toast.success(`File "${selectedFile.name}" selected successfully!`);
-      } else {
-        const errorMsg = "Please select a valid audio file (wav, mp3, m4a, ogg, flac)";
-        setError(errorMsg);
-        setFile(null);
-        toast.error(errorMsg);
-      }
-    }
-  };
-
-  const startRecording = async (type = recordingType) => {
-    try {
-      setError('');
-      console.log('Starting recording with type:', type);
-      
-      let stream;
-      if (type === 'system') {
-        console.log('Requesting system audio with getDisplayMedia...');
-        // Request system audio capture with screen sharing popup
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true, // Need video: true to trigger screen sharing dialog
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false
-          }
-        });
-        
-        console.log('Got display media stream:', stream);
-        console.log('Audio tracks:', stream.getAudioTracks());
-        console.log('Video tracks:', stream.getVideoTracks());
-        
-        // Remove video track if we only want audio
-        const videoTracks = stream.getVideoTracks();
-        videoTracks.forEach(track => {
-          console.log('Stopping video track:', track);
-          track.stop();
-          stream.removeTrack(track);
-        });
-      } else {
-        // Request microphone access
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            sampleRate: 44100,
-            channelCount: 2
-          }
-        });
-      }
-
-      setIsRecording(true);
-      setIsPaused(false);
-      setRecordTimerMs(0);
-      pausedAccumulatedRef.current = 0;
-      startTimeRef.current = Date.now();
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = setInterval(() => {
-        setRecordTimerMs(pausedAccumulatedRef.current + (Date.now() - startTimeRef.current));
-      }, 200);
-      audioChunksRef.current = [];
-
-      const options = { 
-        mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 128000
-      };
-      
-      const mediaRecorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-          console.log(`Audio chunk captured: ${event.data.size} bytes`);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const newRecording = {
-          id: Date.now(),
-          blob: audioBlob,
-          url: audioUrl,
-          type: type,
-          timestamp: new Date(),
-          size: audioBlob.size,
-          transcript: '',
-          backendFilename: null // Will be set after upload
-        };
-        setRecordings(prev => [...prev, newRecording]);
-        console.log(`Recording stopped. Total size: ${audioBlob.size} bytes`);
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        setRecordTimerMs(0);
-        setIsPaused(false);
-      };
-
-      mediaRecorder.onerror = (event) => {
-        console.error('MediaRecorder error:', event.error);
-        setError('Recording error: ' + event.error.message);
-        setIsRecording(false);
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        setIsPaused(false);
-        setRecordTimerMs(0);
-      };
-
-      // Start recording with continuous data collection
-      mediaRecorder.start(1000); // Collect data every second for continuous listening
-      console.log(`${type === 'system' ? 'System audio' : 'Microphone'} recording started`);
-      
-    } catch (err) {
-      console.error('Error starting recording:', err);
-      if (err.name === 'NotAllowedError') {
-        if (type === 'system') {
-          setError('System audio access denied. Please allow screen sharing with audio to record system sounds.');
-        } else {
-          setError('Microphone access denied. Please allow microphone permissions to record audio.');
-        }
-      } else if (err.name === 'NotSupportedError') {
-        if (type === 'system') {
-          setError('System audio recording not supported in this browser. Try Chrome or Edge.');
-        } else {
-          setError('Audio recording not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.');
-        }
-      } else {
-        setError('Failed to start recording: ' + err.message);
-      }
-      setIsRecording(false);
-    }
-  };
-
-  // (Unused _createWAVFile helper removed earlier to reduce lint warnings)
-
-  // Copy transcript to clipboard
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('Copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy text: ', err);
-      toast.error('Failed to copy to clipboard. Please select and copy manually.');
-    }
-  };
-
-  // Pause recording
-  const pauseRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording || isPaused) return;
-    try {
-      mediaRecorderRef.current.pause();
-      pausedAccumulatedRef.current += Date.now() - startTimeRef.current;
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      setIsPaused(true);
-    } catch (e) {
-      console.error('Pause error:', e);
-    }
-  };
-
-  // Resume recording
-  const resumeRecording = () => {
-    if (!mediaRecorderRef.current || !isRecording || !isPaused) return;
-    try {
-      mediaRecorderRef.current.resume();
-      startTimeRef.current = Date.now();
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = setInterval(() => {
-        setRecordTimerMs(pausedAccumulatedRef.current + (Date.now() - startTimeRef.current));
-      }, 200);
-      setIsPaused(false);
-    } catch (e) {
-      console.error('Resume error:', e);
-    }
-  };
-
-  // Stop recording
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      // Stop all tracks to release the microphone
-      mediaRecorderRef.current.stream.getTracks().forEach(track => {
-        track.stop();
-      });
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      setIsPaused(false);
-      setRecordTimerMs(0);
-    }
-  };
-
-  // Transcribe a specific recording
-  const transcribeRecording = async (recordingId) => {
-    const recording = recordings.find(r => r.id === recordingId);
-    if (!recording) {
-      setError('Recording not found');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    
-    // Update the specific recording's transcript status
-    setRecordings(prev => prev.map(r => 
-      r.id === recordingId ? { ...r, transcript: 'Transcribing...' } : r
-    ));
-
-    const formData = new FormData();
-    formData.append('audio', recording.blob, 'recording.webm');
-
-    try {
-      const response = await axios.post('http://localhost:3001/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      if (response.data.transcriptFile) {
-        const transcriptResponse = await axios.get(`http://localhost:3001/transcript/${response.data.transcriptFile.split('/').pop()}`);
-        const backendFilename = response.data.transcriptFile.split('/').pop().replace('.txt', '');
-        // Update the specific recording's transcript and backend filename
-        setRecordings(prev => prev.map(r => 
-          r.id === recordingId ? { 
-            ...r, 
-            transcript: transcriptResponse.data.content,
-            backendFilename: backendFilename
-          } : r
-        ));
-        toast.success('Recording transcribed successfully!');
-      }
-    } catch (err) {
-      console.error('Transcription error:', err);
-      const errorMsg = 'Failed to transcribe audio: ' + (err.response?.data?.error || err.message);
-      setError(errorMsg);
-      toast.error(errorMsg);
-      // Update recording with error state
-      setRecordings(prev => prev.map(r => 
-        r.id === recordingId ? { ...r, transcript: 'Transcription failed' } : r
-      ));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Delete recording and backend files
-  const deleteRecording = async (recordingId) => {
-    const recording = recordings.find(r => r.id === recordingId);
-    if (!recording) return;
-
-    // Remove from frontend immediately
-    setRecordings(prev => prev.filter(r => r.id !== recordingId));
-    toast.success('Recording deleted successfully!');
-
-    // Clean up backend files if they exist
-    if (recording.backendFilename) {
-      try {
-        await axios.delete(`http://localhost:3001/recording/${recording.backendFilename}`);
-        console.log(`Backend files deleted for: ${recording.backendFilename}`);
-      } catch (err) {
-        console.error('Failed to delete backend files:', err);
-        // Don't show error to user since frontend cleanup already happened
-      }
-    }
-
-    // Clean up blob URL to prevent memory leaks
-    if (recording.url) {
-      URL.revokeObjectURL(recording.url);
-    }
-
-    // Refresh saved recordings list
-    fetchSavedRecordings();
-  };
-
-  // Delete saved recording from backend
-  const deleteSavedRecording = async (filename) => {
-    try {
-      await axios.delete(`http://localhost:3001/recording/${filename}`);
-      fetchSavedRecordings(); // Refresh the list
-      toast.success('Saved recording deleted successfully!');
-    } catch (err) {
-      console.error('Failed to delete saved recording:', err);
-      const errorMsg = 'Failed to delete recording';
-      setError(errorMsg);
-      toast.error(errorMsg);
-    }
-  };
-
-  const transcribeFile = async () => {
-    if (!file) {
-      setError("Please select an audio file first");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setTranscript("");
-    // Make sure we are on the Import view during import flow
-    setCurrentView('import');
-
-    try {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const uploadRes = await axios.post('http://localhost:3001/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000
-      });
-
-      const transcriptRes = await axios.get(`http://localhost:3001/transcript/${uploadRes.data.transcriptFile.split('/').pop()}`, {
-        timeout: 300000
-      });
-      
-      setTranscript(transcriptRes.data.content);
-      setImportSummary(''); // clear previous import summary
-      toast.success('File transcribed successfully!');
-    } catch (err) {
-      console.error("Upload error:", err);
-      const errorMsg = err.response?.data?.error || "Failed to transcribe audio. Make sure the backend is running.";
-      setError(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const newError = transcript.error || summary.error || chat.error;
+    setError(newError);
+  }, [transcript.error, summary.error, chat.error]);
 
   return (
-    <div className="otter-shell">
+    <div className="app-shell">
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-      <Topbar 
-        onImportClick={() => setCurrentView('import')}
+      <Topbar
+        onImportClick={() => setCurrentView("import")}
         onRecordClick={() => setShowRecordModal(true)}
       />
-      <main className="otter-main">
+
+      <main className="app-main">
         <div className="feed-container">
           {/* Error Message */}
           {error && (
-            <div className="feed-card" style={{borderColor: '#fecaca', background: '#fff1f2', color: '#b91c1c', marginBottom: '16px'}}>
+            <div
+              className="feed-card"
+              style={{
+                borderColor: "#fecaca",
+                background: "#fff1f2",
+                color: "#b91c1c",
+                marginBottom: "16px",
+              }}
+            >
               <strong>⚠️ Error:</strong> {error}
             </div>
           )}
 
-          {currentView === 'transcripts' && (
-            <>
-              {/* Toolbar for transcripts management */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={clearAllTranscripts}
-                  title="Remove all in-session recordings"
-                >
-                  🧹 Clear All Transcripts
-                </button>
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={clearAllSummaries}
-                  title="Remove all generated summaries"
-                >
-                  🧽 Clear All Summaries
-                </button>
-              </div>
-              {/* In-session recordings as feed cards */}
-              {recordings.map((recording, index) => (
-                <>
-                  <FeedCard
-                    key={recording.id}
-                    avatar={recording.type === 'system' ? '🔊' : '🎤'}
-                    title={`Recording #${recordings.length - index}`}
-                    subtitle={recording.timestamp.toLocaleTimeString()}
-                    fullText={recording.transcript && recording.transcript !== 'Transcribing...' ? recording.transcript : undefined}
-                    snippet={(!recording.transcript || recording.transcript === 'Transcribing...')
-                      ? (recording.transcript === 'Transcribing...' ? 'Transcribing audio...' : 'Click to transcribe')
-                      : undefined}
-                    metadata={[
-                      `${(recording.size / 1024).toFixed(1)} KB`,
-                      recording.type === 'system' ? 'System Audio' : 'Microphone'
-                    ]}
-                    thumbnail={
-                      <audio controls src={recording.url} style={{width: '100%', height: '32px'}} />
-                    }
-                    actions={
-                      <>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); transcribeRecording(recording.id); }}
-                          className="btn btn-primary btn-sm"
-                          disabled={loading}
-                          title={recording.transcript === 'Transcribing...' ? 'Transcribing audio...' : 
-                                 recording.transcript && recording.transcript !== '' ? 'Transcription complete' : 'Start transcription'}
-                        >
-                          {recording.transcript === 'Transcribing...' ? '⏳' : 
-                           recording.transcript && recording.transcript !== '' ? '✅' : '✨'}
-                        </button>
-                        {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                          <>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); summarizeRecordingTranscript(recording.id); }}
-                              className="btn btn-secondary btn-sm"
-                              disabled={recording.summarizing}
-                              title="Generic summary"
-                            >
-                              {recording.summarizing ? '⏳' : '🧠'}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); summarizeRecordingTranscript(recording.id, STUDY_NOTES_STYLE); }}
-                              className="btn btn-secondary btn-sm"
-                              disabled={recording.summarizing}
-                              title="Study Notes"
-                            >
-                              {recording.summarizing ? '⏳' : '📘'}
-                            </button>
-                          </>
-                        )}
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deleteRecording(recording.id); }}
-                          className="btn btn-secondary btn-sm"
-                          style={{color: '#b91c1c'}}
-                          title="Delete this recording"
-                        >
-                          🗑️
-                        </button>
-                      </>
-                    }
-                  />
-                  {recording.summary && (
-                    <FeedCard
-                      avatar="🧠"
-                      title={
-                        editingTitles[`recording_${recording.id}`] ? (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <input
-                              type="text"
-                              defaultValue={getSummaryTitle(recording.summary, recording.id, 'recording')}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  saveTitle(recording.id, e.target.value, 'recording');
-                                } else if (e.key === 'Escape') {
-                                  cancelEditingTitle(recording.id, 'recording');
-                                }
-                              }}
-                              onBlur={(e) => saveTitle(recording.id, e.target.value, 'recording')}
-                              autoFocus
-                              style={{ 
-                                border: '1px solid #ccc', 
-                                borderRadius: '4px', 
-                                padding: '4px 8px',
-                                fontSize: '14px',
-                                minWidth: '200px'
-                              }}
-                            />
-                            <button
-                              onClick={() => cancelEditingTitle(recording.id, 'recording')}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                              title="Cancel editing"
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <span>{getSummaryTitle(recording.summary, recording.id, 'recording')}</span>
-                            <button
-                              onClick={() => startEditingTitle(recording.id, 'recording')}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                              title="Edit title"
-                            >
-                              ✏️
-                            </button>
-                          </div>
-                        )
-                      }
-                      subtitle="Concise notes"
-                      fullText={recording.summary}
-                      actions={
-                        <>
-                          <button 
-                            onClick={() => copyToClipboard(recording.summary)}
-                            className="btn btn-outline btn-sm"
-                            title="Copy summary to clipboard"
-                          >
-                            📋 Copy
-                          </button>
-                          <button
-                            onClick={() => exportToPDF(recording.summary, getSummaryTitle(recording.summary, recording.id, 'recording'))}
-                            className="btn btn-primary btn-sm"
-                            title="Export to PDF"
-                          >
-                            📄 PDF
-                          </button>
-                          <button
-                            onClick={() => clearRecordingSummary(recording.id)}
-                            className="btn btn-secondary btn-sm"
-                            style={{color: '#b91c1c'}}
-                            title="Clear this summary"
-                          >
-                            🗑️ Clear
-                          </button>
-                        </>
-                      }
-                    />
-                  )}
-                </>
-              ))}
-
-              {/* Saved Recordings as feed cards */}
-              {savedRecordings.map((recording) => (
-                <>
-                  <FeedCard
-                    key={recording.filename}
-                    avatar="📁"
-                    title={recording.filename || 'Saved Recording'}
-                    subtitle={`${Math.floor(Math.random() * 24)}h ${Math.floor(Math.random() * 60)}m • ${Math.floor(Math.random() * 60)} minutes • General`}
-                    fullText={recording.transcript || undefined}
-                    snippet={!recording.transcript ? 'No transcript available for this recording' : undefined}
-                    metadata={[
-                      `${(recording.size / 1024).toFixed(1)} KB`,
-                      new Date(recording.created).toLocaleDateString()
-                    ]}
-                    thumbnail={
-                      <div style={{background: '#e0e7ff', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#3730a3'}}>
-                        📄 {Math.floor(Math.random() * 10)}
-                      </div>
-                    }
-                    actions={
-                      <>
-                        {recording.hasTranscript && recording.transcript && (
-                          <>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); summarizeSavedRecording(recording.filename); }}
-                              className="btn btn-secondary btn-sm"
-                              disabled={recording.summarizing}
-                              title="Generic summary"
-                            >
-                              {recording.summarizing ? '⏳' : '🧠'}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); summarizeSavedRecording(recording.filename, STUDY_NOTES_STYLE); }}
-                              className="btn btn-secondary btn-sm"
-                              disabled={recording.summarizing}
-                              title="Study Notes"
-                            >
-                              {recording.summarizing ? '⏳' : '📘'}
-                            </button>
-                          </>
-                        )}
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deleteSavedRecording(recording.filename); }}
-                          className="btn btn-secondary btn-sm"
-                          style={{color: '#b91c1c'}}
-                          title="Delete this saved recording"
-                        >
-                          🗑️
-                        </button>
-                      </>
-                    }
-                  />
-                  {recording.summary && (
-                    <FeedCard
-                      avatar="🧠"
-                      title={
-                        editingTitles[`saved_${recording.filename}`] ? (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <input
-                              type="text"
-                              defaultValue={getSummaryTitle(recording.summary, recording.filename, 'saved')}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  saveTitle(recording.filename, e.target.value, 'saved');
-                                } else if (e.key === 'Escape') {
-                                  cancelEditingTitle(recording.filename, 'saved');
-                                }
-                              }}
-                              onBlur={(e) => saveTitle(recording.filename, e.target.value, 'saved')}
-                              autoFocus
-                              style={{ 
-                                border: '1px solid #ccc', 
-                                borderRadius: '4px', 
-                                padding: '4px 8px',
-                                fontSize: '14px',
-                                minWidth: '200px'
-                              }}
-                            />
-                            <button
-                              onClick={() => cancelEditingTitle(recording.filename, 'saved')}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                              title="Cancel editing"
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <span>{getSummaryTitle(recording.summary, recording.filename, 'saved')}</span>
-                            <button
-                              onClick={() => startEditingTitle(recording.filename, 'saved')}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                              title="Edit title"
-                            >
-                              ✏️
-                            </button>
-                          </div>
-                        )
-                      }
-                      subtitle="Concise notes"
-                      fullText={recording.summary}
-                      actions={
-                        <>
-                          <button 
-                            onClick={() => copyToClipboard(recording.summary)}
-                            className="btn btn-outline btn-sm"
-                            title="Copy summary to clipboard"
-                          >
-                            📋 Copy
-                          </button>
-                          <button
-                            onClick={() => exportToPDF(recording.summary, getSummaryTitle(recording.summary, recording.filename, 'saved'))}
-                            className="btn btn-primary btn-sm"
-                            title="Export to PDF"
-                          >
-                            📄 PDF
-                          </button>
-                          <button
-                            onClick={() => clearSavedRecordingSummary(recording.filename)}
-                            className="btn btn-secondary btn-sm"
-                            style={{color: '#b91c1c'}}
-                            title="Clear this summary"
-                          >
-                            🗑️ Clear
-                          </button>
-                        </>
-                      }
-                    />
-                  )}
-                </>
-              ))}
-
-              
-
-              
-            </>
+          {/* View Components */}
+          {currentView === "transcripts" && (
+            <TranscriptView
+              recording={recording}
+              transcript={transcript}
+              summary={summary}
+            />
           )}
 
-          {currentView === 'import' && (
-            <>
-              {/* Upload panel for importing audio and transcribing */}
-              <UploadPanel 
-                file={file}
-                onFileChange={handleFileChange}
-                onTranscribe={transcribeFile}
-                loading={loading}
-              />
-
-              {/* Quick clear of current import */}
-              {(file || transcript) && (
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <button
-                    onClick={clearImportedTranscript}
-                    className="btn btn-secondary btn-sm"
-                    style={{ color: '#b91c1c' }}
-                    title="Delete imported file/transcript"
-                  >
-                    🗑️ Clear Import
-                  </button>
-                </div>
-              )}
-
-              {/* Import Transcript as feed card */}
-              {transcript && transcript !== 'Transcribing...' && (
-                <FeedCard
-                  avatar="📥"
-                  title="Import Transcript"
-                  subtitle={file ? `Imported: ${file.name}` : 'Imported file'}
-                  fullText={transcript}
-                  metadata={[
-                    file ? `${(file.size / 1024).toFixed(1)} KB` : undefined,
-                    new Date().toLocaleString()
-                  ].filter(Boolean)}
-                  thumbnail={
-                    <div style={{background: '#e0f2fe', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#0369a1'}}>
-                      📄
-                    </div>
-                  }
-                  actions={
-                    <>
-                      <button 
-                        onClick={() => copyToClipboard(transcript)}
-                        className="btn btn-outline btn-sm"
-                        title="Copy transcript to clipboard"
-                      >
-                        📋 Copy
-                      </button>
-                      <button 
-                        onClick={clearImportedTranscript}
-                        className="btn btn-secondary btn-sm"
-                        style={{color: '#b91c1c'}}
-                        title="Delete imported transcript"
-                      >
-                        🗑️ Delete
-                      </button>
-                      <button
-                        onClick={() => summarizeImportTranscript()}
-                        className="btn btn-primary btn-sm"
-                        disabled={importSummarizing}
-                        title="Generic summary"
-                      >
-                        {importSummarizing ? '⏳' : '🧠'} Summarize
-                      </button>
-                      <button
-                        onClick={() => summarizeImportTranscript(STUDY_NOTES_STYLE)}
-                        className="btn btn-secondary btn-sm"
-                        disabled={importSummarizing}
-                        title="Study Notes"
-                      >
-                        {importSummarizing ? '⏳' : '📘'} Study Notes
-                      </button>
-                    </>
-                  }
-                />
-              )}
-
-              {/* Show summary as feed card in Import view */}
-              {importSummary && (
-                <FeedCard
-                  avatar="🧠"
-                  title={
-                    editingTitles['import_summary'] ? (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <input
-                          type="text"
-                          defaultValue={getSummaryTitle(importSummary, 'summary', 'import')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              saveTitle('summary', e.target.value, 'import');
-                            } else if (e.key === 'Escape') {
-                              cancelEditingTitle('summary', 'import');
-                            }
-                          }}
-                          onBlur={(e) => saveTitle('summary', e.target.value, 'import')}
-                          autoFocus
-                          style={{ 
-                            border: '1px solid #ccc', 
-                            borderRadius: '4px', 
-                            padding: '4px 8px',
-                            fontSize: '14px',
-                            minWidth: '200px'
-                          }}
-                        />
-                        <button
-                          onClick={() => cancelEditingTitle('summary', 'import')}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                          title="Cancel editing"
-                        >
-                          ❌
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span>{getSummaryTitle(importSummary, 'summary', 'import')}</span>
-                        <button
-                          onClick={() => startEditingTitle('summary', 'import')}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                          title="Edit title"
-                        >
-                          ✏️
-                        </button>
-                      </div>
-                    )
-                  }
-                  subtitle="Concise study notes"
-                  fullText={importSummary}
-                  actions={
-                    <>
-                      <button 
-                        onClick={() => copyToClipboard(importSummary)}
-                        className="btn btn-outline btn-sm"
-                        title="Copy summary to clipboard"
-                      >
-                        📋 Copy
-                      </button>
-                      <button
-                        onClick={() => exportToPDF(importSummary, getSummaryTitle(importSummary, 'summary', 'import'))}
-                        className="btn btn-primary btn-sm"
-                        title="Export to PDF"
-                      >
-                        📄 PDF
-                      </button>
-                      <button 
-                        onClick={clearImportSummary}
-                        className="btn btn-secondary btn-sm"
-                        style={{color: '#b91c1c'}}
-                        title="Clear summary"
-                      >
-                        🗑️ Clear
-                      </button>
-                    </>
-                  }
-                />
-              )}
-            </>
+          {currentView === "import" && (
+            <ImportView transcript={transcript} summary={summary} />
           )}
 
-          {currentView === 'chat' && (
-            <>
-              {/* Show chat messages as feed cards */}
-              {chatMessages.map((msg, index) => (
-                <FeedCard
-                  key={index}
-                  avatar={msg.role === 'user' ? '👤' : '🤖'}
-                  title={msg.role === 'user' ? 'You' : 'Nexus AI'}
-                  subtitle={msg.timestamp.toLocaleTimeString()}
-                  fullText={msg.content}
-                  actions={
-                    <button 
-                      onClick={() => copyToClipboard(msg.content)}
-                      className="btn btn-outline btn-sm"
-                      title="Copy message to clipboard"
-                    >
-                      📋 Copy
-                    </button>
-                  }
-                />
-              ))}
-
-              {/* Shimmer loader while waiting for AI response */}
-              {chatLoading && (
-                <div className="feed-card-item" aria-busy="true" aria-live="polite">
-                  <div className="feed-card-avatar skeleton skeleton-avatar" />
-                  <div className="feed-card-content">
-                    <div className="feed-card-header">
-                      <div className="feed-card-title-section">
-                        <div className="skeleton skeleton-title" />
-                        <div className="skeleton skeleton-subtitle" />
-                      </div>
-                      <div className="feed-card-metadata">
-                        <span className="skeleton skeleton-meta" />
-                        <span className="skeleton skeleton-meta" />
-                      </div>
-                    </div>
-                    <div className="skeleton skeleton-line" />
-                    <div className="skeleton skeleton-line sm" />
-                    <div className="feed-card-actions">
-                      <div className="skeleton skeleton-btn" />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+          {currentView === "chat" && <ChatView chat={chat} />}
         </div>
       </main>
 
-      {/* Toast Container for notifications */}
+      {/* Toast Container */}
       <ToastContainer
         position="top-right"
         autoClose={3000}
@@ -1224,71 +96,89 @@ function App() {
         theme="light"
       />
 
-      {/* Bottom chat input - only in Chat view */}
-      {currentView === 'chat' && (
-        <ChatInput 
-          onSendMessage={handleChatMessage}
-          isLoading={chatLoading}
-          onAttachFile={attachFileToChat}
+      {/* Chat Input - only in Chat view */}
+      {currentView === "chat" && (
+        <ChatInput
+          onSendMessage={chat.sendMessage}
+          isLoading={chat.loading}
+          onAttachFile={chat.attachFile}
           onOpenPasteModal={() => setShowPasteModal(true)}
-          sources={sources}
-          onRemoveSource={removeSource}
+          sources={chat.sources}
+          onRemoveSource={chat.removeSource}
         />
       )}
 
-      {/* Import Modal */}
-      <Modal open={showImportModal} title="Import audio" onClose={() => setShowImportModal(false)} width={720}>
-        <UploadPanel 
-          file={file}
-          onFileChange={handleFileChange}
-          onTranscribe={async () => { await transcribeFile(); setShowImportModal(false); }}
-          loading={loading}
+      {/* Record Modal */}
+      <Modal
+        open={showRecordModal}
+        title="Record"
+        onClose={() => setShowRecordModal(false)}
+        width={720}
+      >
+        <RecordPanel
+          isRecording={recording.isRecording}
+          isPaused={recording.isPaused}
+          recordingType={recording.recordingType}
+          setRecordingType={recording.setRecordingType}
+          startRecording={recording.startRecording}
+          stopRecording={recording.stopRecording}
+          pauseRecording={recording.pauseRecording}
+          resumeRecording={recording.resumeRecording}
+          recordTimerMs={recording.recordTimerMs}
+          loading={transcript.loading}
         />
       </Modal>
 
-      {/* Paste Text as Source Modal */}
-      <Modal open={showPasteModal} title="Add text source" onClose={() => { setShowPasteModal(false); setPasteModalText(''); }} width={720}>
-        <div style={{display: 'grid', gap: '12px'}}>
+      {/* Paste Text Modal */}
+      <Modal
+        open={showPasteModal}
+        title="Add text source"
+        onClose={() => {
+          setShowPasteModal(false);
+          setPasteModalText("");
+        }}
+        width={720}
+      >
+        <div style={{ display: "grid", gap: "12px" }}>
           <textarea
             rows={8}
             placeholder="Paste text to chat over..."
             value={pasteModalText}
             onChange={(e) => setPasteModalText(e.target.value)}
-            style={{width: '100%'}}
+            style={{ width: "100%" }}
           />
-          <div style={{display: 'flex', gap: '8px', justifyContent: 'flex-end'}}>
+          <div
+            style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}
+          >
             <button
               className="btn btn-primary"
               disabled={!pasteModalText.trim()}
               onClick={async () => {
                 const text = pasteModalText.trim();
                 if (!text) return;
-                await pasteTextToChat(text);
-                setPasteModalText('');
-                setShowPasteModal(false);
+                const success = await chat.addTextSource(text);
+                if (success) {
+                  setPasteModalText("");
+                  setShowPasteModal(false);
+                  toast.success("Text added as source successfully!");
+                } else {
+                  toast.error("Failed to add text as source");
+                }
               }}
             >
               Add as Source
             </button>
-            <button className="btn btn-secondary" onClick={() => { setShowPasteModal(false); setPasteModalText(''); }}>Cancel</button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowPasteModal(false);
+                setPasteModalText("");
+              }}
+            >
+              Cancel
+            </button>
           </div>
         </div>
-      </Modal>
-
-      {/* Record Modal */}
-      <Modal open={showRecordModal} title="Record" onClose={() => setShowRecordModal(false)} width={720}>
-        <RecordPanel 
-          isRecording={isRecording}
-          isPaused={isPaused}
-          recordingType={recordingType}
-          setRecordingType={setRecordingType}
-          startRecording={startRecording}
-          stopRecording={stopRecording}
-          pauseRecording={pauseRecording}
-          resumeRecording={resumeRecording}
-          recordTimerMs={recordTimerMs}
-          loading={loading}
-        />
       </Modal>
     </div>
   );

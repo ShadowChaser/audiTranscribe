@@ -1,28 +1,31 @@
-import React from 'react';
+import React from "react";
 
-export default function Sidebar({ currentView = 'chat', onNavigate = () => {} }) {
+export default function Sidebar({
+  currentView = "chat",
+  onNavigate = () => {},
+}) {
   return (
-    <aside className="otter-sidebar">
+    <aside className="app-sidebar">
       <div className="sidebar-header">ScribeFlow</div>
       <nav className="sidebar-nav">
         <button
-          className={`nav-btn ${currentView === 'chat' ? 'active' : ''}`}
+          className={`nav-btn ${currentView === "chat" ? "active" : ""}`}
           title="Chat"
-          onClick={() => onNavigate('chat')}
+          onClick={() => onNavigate("chat")}
         >
           💬 <span>Chat</span>
         </button>
         <button
-          className={`nav-btn ${currentView === 'transcripts' ? 'active' : ''}`}
+          className={`nav-btn ${currentView === "transcripts" ? "active" : ""}`}
           title="Transcripts"
-          onClick={() => onNavigate('transcripts')}
+          onClick={() => onNavigate("transcripts")}
         >
           📝 <span>Transcripts</span>
         </button>
         <button
-          className={`nav-btn ${currentView === 'import' ? 'active' : ''}`}
+          className={`nav-btn ${currentView === "import" ? "active" : ""}`}
           title="Import Transcript"
-          onClick={() => onNavigate('import')}
+          onClick={() => onNavigate("import")}
         >
           📥 <span>Import Transcript</span>
         </button>

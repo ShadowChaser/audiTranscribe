@@ -1,0 +1,2 @@
+[0.00s - 6.32s]:  time. Really interesting. Let's get into this. Okay, I think this is an iterative
+[6.32s - 8.32s]:  update.

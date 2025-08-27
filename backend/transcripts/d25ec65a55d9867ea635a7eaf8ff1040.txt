@@ -1,0 +1,5 @@
+[0.00s - 5.44s]:  made very smart choices. It's got the Google Tenta G5, which is a brand new chip.
+[5.44s - 10.72s]:  It's got 12GB of RAM, it's got two storage options, 128 and 256GB.
+[10.72s - 16.44s]:  The display is a 6.3-inch-actua OLED panel. It's got 3,000 nits of peak brightness,
+[16.44s - 21.88s]:  but camera system has been changed because it has a 5x optical zoom, which is
+[21.88s - 24.60s]:  very good news. The battery still lasts so long.

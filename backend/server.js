@@ -32,6 +32,83 @@ const upload = multer({ dest: "uploads/" });
 // Serve transcript files
 app.use('/transcripts', express.static(path.join(__dirname, 'transcripts')));
 
+// Serve audio files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// List all recordings endpoint
+app.get('/recordings', (req, res) => {
+  try {
+    const uploadsDir = path.join(__dirname, 'uploads');
+    const transcriptsDir = path.join(__dirname, 'transcripts');
+    
+    if (!fs.existsSync(uploadsDir)) {
+      return res.json({ recordings: [] });
+    }
+    
+    const uploadFiles = fs.readdirSync(uploadsDir);
+    const recordings = uploadFiles.map(filename => {
+      const uploadPath = path.join(uploadsDir, filename);
+      const transcriptPath = path.join(transcriptsDir, `${filename}.txt`);
+      
+      const stats = fs.statSync(uploadPath);
+      let transcript = '';
+      let hasTranscript = false;
+      
+      if (fs.existsSync(transcriptPath)) {
+        try {
+          transcript = fs.readFileSync(transcriptPath, 'utf8');
+          hasTranscript = true;
+        } catch (err) {
+          console.error(`Error reading transcript ${filename}:`, err);
+        }
+      }
+      
+      return {
+        filename,
+        size: stats.size,
+        created: stats.birthtime,
+        modified: stats.mtime,
+        hasTranscript,
+        transcript
+      };
+    });
+    
+    // Sort by creation time (newest first)
+    recordings.sort((a, b) => new Date(b.created) - new Date(a.created));
+    
+    res.json({ recordings });
+  } catch (error) {
+    console.error('Error listing recordings:', error);
+    res.status(500).json({ error: 'Failed to list recordings' });
+  }
+});
+
+// Delete recording files endpoint
+app.delete('/recording/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const uploadPath = path.join(__dirname, 'uploads', filename);
+  const transcriptPath = path.join(__dirname, 'transcripts', `${filename}.txt`);
+  
+  try {
+    // Delete upload file if it exists
+    if (fs.existsSync(uploadPath)) {
+      fs.unlinkSync(uploadPath);
+      console.log(`Deleted upload file: ${uploadPath}`);
+    }
+    
+    // Delete transcript file if it exists
+    if (fs.existsSync(transcriptPath)) {
+      fs.unlinkSync(transcriptPath);
+      console.log(`Deleted transcript file: ${transcriptPath}`);
+    }
+    
+    res.json({ success: true, message: 'Files deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting files:', error);
+    res.status(500).json({ error: 'Failed to delete files' });
+  }
+});
+
 app.post("/upload", upload.single("audio"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No audio file uploaded" });

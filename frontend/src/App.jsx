@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -8,11 +8,25 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [audioUrl, setAudioUrl] = useState('');
+  const [recordings, setRecordings] = useState([]); // Array to store multiple recordings
+  const [savedRecordings, setSavedRecordings] = useState([]); // Array to store saved recordings from backend
   const [recordingType, setRecordingType] = useState('microphone'); // 'microphone' or 'system'
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  // Fetch saved recordings on component mount
+  useEffect(() => {
+    fetchSavedRecordings();
+  }, []);
+
+  const fetchSavedRecordings = async () => {
+    try {
+      const response = await axios.get('http://localhost:3001/recordings');
+      setSavedRecordings(response.data.recordings);
+    } catch (err) {
+      console.error('Failed to fetch saved recordings:', err);
+    }
+  };
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -90,8 +104,18 @@ function App() {
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setAudioBlob(audioBlob);
-        setAudioUrl(URL.createObjectURL(audioBlob));
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const newRecording = {
+          id: Date.now(),
+          blob: audioBlob,
+          url: audioUrl,
+          type: type,
+          timestamp: new Date(),
+          size: audioBlob.size,
+          transcript: '',
+          backendFilename: null // Will be set after upload
+        };
+        setRecordings(prev => [...prev, newRecording]);
         console.log(`Recording stopped. Total size: ${audioBlob.size} bytes`);
       };
 
@@ -198,19 +222,24 @@ function App() {
     }
   };
 
-  // Transcribe the recorded audio
-  const transcribeRecording = async () => {
-    if (!audioBlob) {
-      setError('No audio recording available');
+  // Transcribe a specific recording
+  const transcribeRecording = async (recordingId) => {
+    const recording = recordings.find(r => r.id === recordingId);
+    if (!recording) {
+      setError('Recording not found');
       return;
     }
 
     setLoading(true);
     setError('');
-    setTranscript('Transcribing...');
+    
+    // Update the specific recording's transcript status
+    setRecordings(prev => prev.map(r => 
+      r.id === recordingId ? { ...r, transcript: 'Transcribing...' } : r
+    ));
 
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
+    formData.append('audio', recording.blob, 'recording.webm');
 
     try {
       const response = await axios.post('http://localhost:3001/upload', formData, {
@@ -221,16 +250,66 @@ function App() {
 
       if (response.data.transcriptFile) {
         const transcriptResponse = await axios.get(`http://localhost:3001/transcript/${response.data.transcriptFile.split('/').pop()}`);
-        setTranscript(transcriptResponse.data.content);
+        const backendFilename = response.data.transcriptFile.split('/').pop().replace('.txt', '');
+        // Update the specific recording's transcript and backend filename
+        setRecordings(prev => prev.map(r => 
+          r.id === recordingId ? { 
+            ...r, 
+            transcript: transcriptResponse.data.content,
+            backendFilename: backendFilename
+          } : r
+        ));
       }
     } catch (err) {
       console.error('Transcription error:', err);
       setError('Failed to transcribe audio: ' + (err.response?.data?.error || err.message));
+      // Update recording with error state
+      setRecordings(prev => prev.map(r => 
+        r.id === recordingId ? { ...r, transcript: 'Transcription failed' } : r
+      ));
     } finally {
       setLoading(false);
     }
   };
 
+  // Delete recording and backend files
+  const deleteRecording = async (recordingId) => {
+    const recording = recordings.find(r => r.id === recordingId);
+    if (!recording) return;
+
+    // Remove from frontend immediately
+    setRecordings(prev => prev.filter(r => r.id !== recordingId));
+
+    // Clean up backend files if they exist
+    if (recording.backendFilename) {
+      try {
+        await axios.delete(`http://localhost:3001/recording/${recording.backendFilename}`);
+        console.log(`Backend files deleted for: ${recording.backendFilename}`);
+      } catch (err) {
+        console.error('Failed to delete backend files:', err);
+        // Don't show error to user since frontend cleanup already happened
+      }
+    }
+
+    // Clean up blob URL to prevent memory leaks
+    if (recording.url) {
+      URL.revokeObjectURL(recording.url);
+    }
+
+    // Refresh saved recordings list
+    fetchSavedRecordings();
+  };
+
+  // Delete saved recording from backend
+  const deleteSavedRecording = async (filename) => {
+    try {
+      await axios.delete(`http://localhost:3001/recording/${filename}`);
+      fetchSavedRecordings(); // Refresh the list
+    } catch (err) {
+      console.error('Failed to delete saved recording:', err);
+      setError('Failed to delete recording');
+    }
+  };
 
   const transcribeFile = async () => {
     if (!file) {
@@ -324,7 +403,7 @@ function App() {
           <div className="recording-controls">
             {!isRecording ? (
               <button 
-                onClick={startRecording}
+                onClick={() => startRecording(recordingType)}
                 className="btn btn-danger btn-lg"
                 disabled={loading}
               >
@@ -346,16 +425,120 @@ function App() {
             )}
           </div>
           
-          {audioBlob && (
-            <div style={{marginTop: '1rem'}}>
-              <audio controls src={audioUrl} style={{width: '100%', marginBottom: '1rem'}} />
-              <button 
-                onClick={transcribeRecording}
-                className="btn btn-primary"
-                disabled={loading}
-              >
-                {loading ? '⏳ Transcribing...' : '✨ Transcribe Recording'}
-              </button>
+          {/* Multiple Recordings Display */}
+          {recordings.length > 0 && (
+            <div style={{marginTop: '1.5rem'}}>
+              <h4 style={{margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: '600'}}>
+                🎵 Recordings ({recordings.length})
+              </h4>
+              {recordings.map((recording, index) => (
+                <div key={recording.id} className="recorded-audio-section" style={{
+                  marginBottom: '1rem',
+                  padding: '1.5rem',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '1rem'
+                  }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                      <div style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: recording.type === 'system' ? 
+                          'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 
+                          'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)'
+                      }}></div>
+                      <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
+                        {recording.type === 'system' ? '🔊' : '🎤'} Recording #{recordings.length - index}
+                      </h5>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        opacity: 0.7,
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: '6px'
+                      }}>
+                        {(recording.size / 1024).toFixed(1)} KB
+                      </span>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        opacity: 0.6
+                      }}>
+                        {recording.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => deleteRecording(recording.id)}
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '0.3rem 0.6rem',
+                        fontSize: '0.75rem',
+                        background: 'rgba(255, 107, 107, 0.2)',
+                        border: '1px solid rgba(255, 107, 107, 0.3)',
+                        color: '#ff6b6b'
+                      }}
+                      title="Delete recording and backend files"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  
+                  <audio 
+                    controls 
+                    src={recording.url} 
+                    style={{
+                      width: '100%', 
+                      marginBottom: '1rem',
+                      borderRadius: '8px'
+                    }} 
+                  />
+                  
+                  <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
+                    <button 
+                      onClick={() => transcribeRecording(recording.id)}
+                      className="btn btn-primary"
+                      disabled={loading}
+                      style={{flex: 1}}
+                    >
+                      {recording.transcript === 'Transcribing...' ? '⏳ Transcribing...' : 
+                       recording.transcript && recording.transcript !== '' ? '✅ Transcribed' : '✨ Transcribe'}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = recording.url;
+                        link.download = `recording-${recording.id}.webm`;
+                        link.click();
+                      }}
+                      className="btn btn-secondary"
+                      title="Download recording"
+                    >
+                      💾
+                    </button>
+                  </div>
+
+                  {/* Show transcript if available */}
+                  {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                    <div style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      borderRadius: '8px',
+                      padding: '1rem',
+                      border: '1px solid rgba(255, 255, 255, 0.05)'
+                    }}>
+                      <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
+                      <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                        {recording.transcript}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -396,6 +579,154 @@ function App() {
             >
               {loading ? '⏳ Transcribing...' : '✨ Transcribe File'}
             </button>
+          )}
+        </div>
+
+        {/* Saved Recordings from System */}
+        <div className="card">
+          <div className="card-header">
+            <div className="card-icon">💾</div>
+            <div>
+              <h3 className="card-title">Saved Recordings</h3>
+              <p className="card-description">All recordings and transcripts saved in the system</p>
+            </div>
+          </div>
+          
+          {savedRecordings.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '2rem',
+              opacity: 0.6
+            }}>
+              <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>📂</div>
+              <p>No saved recordings found</p>
+            </div>
+          ) : (
+            <div>
+              <div style={{marginBottom: '1rem', fontSize: '0.9rem', opacity: 0.8}}>
+                Found {savedRecordings.length} saved recording{savedRecordings.length !== 1 ? 's' : ''}
+              </div>
+              {savedRecordings.map((recording, index) => (
+                <div key={recording.filename} style={{
+                  marginBottom: '1rem',
+                  padding: '1.5rem',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '1rem'
+                  }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                      <div style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: recording.hasTranscript ? 
+                          'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)' : 
+                          'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                      }}></div>
+                      <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
+                        📁 Recording #{savedRecordings.length - index}
+                      </h5>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        opacity: 0.7,
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: '6px'
+                      }}>
+                        {(recording.size / 1024).toFixed(1)} KB
+                      </span>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        opacity: 0.6
+                      }}>
+                        {new Date(recording.created).toLocaleString()}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => deleteSavedRecording(recording.filename)}
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '0.3rem 0.6rem',
+                        fontSize: '0.75rem',
+                        background: 'rgba(255, 107, 107, 0.2)',
+                        border: '1px solid rgba(255, 107, 107, 0.3)',
+                        color: '#ff6b6b'
+                      }}
+                      title="Delete saved recording"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  
+                  <audio 
+                    controls 
+                    src={`http://localhost:3001/uploads/${recording.filename}`}
+                    style={{
+                      width: '100%', 
+                      marginBottom: '1rem',
+                      borderRadius: '8px'
+                    }} 
+                  />
+                  
+                  <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
+                    <button 
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = `http://localhost:3001/uploads/${recording.filename}`;
+                        link.download = recording.filename;
+                        link.click();
+                      }}
+                      className="btn btn-secondary"
+                      title="Download recording"
+                    >
+                      💾 Download
+                    </button>
+                    <button 
+                      onClick={() => fetchSavedRecordings()}
+                      className="btn btn-secondary"
+                      title="Refresh recordings"
+                    >
+                      🔄 Refresh
+                    </button>
+                  </div>
+
+                  {/* Show transcript if available */}
+                  {recording.hasTranscript && recording.transcript && (
+                    <div style={{
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      borderRadius: '8px',
+                      padding: '1rem',
+                      border: '1px solid rgba(255, 255, 255, 0.05)'
+                    }}>
+                      <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
+                      <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                        {recording.transcript}
+                      </p>
+                    </div>
+                  )}
+
+                  {!recording.hasTranscript && (
+                    <div style={{
+                      background: 'rgba(255, 193, 7, 0.1)',
+                      borderRadius: '8px',
+                      padding: '0.8rem',
+                      border: '1px solid rgba(255, 193, 7, 0.2)',
+                      textAlign: 'center',
+                      fontSize: '0.85rem',
+                      opacity: 0.8
+                    }}>
+                      ⚠️ No transcript available for this recording
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

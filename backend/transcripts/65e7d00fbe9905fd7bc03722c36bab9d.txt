@@ -1,2 +1,0 @@
-[0.00s - 6.00s]:  Hello, hello, hello, how are you, man? Is everything good?
-[6.00s - 9.00s]:  Hello, hello

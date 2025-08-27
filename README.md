@@ -1,20 +1,23 @@
-# 🎙️ Whisper Local Transcription App
+# 🎙️ ScribeFlow - AI Transcription & Chat Platform
 
-A local web application that transcribes audio files using OpenAI's Whisper model. Upload audio files and get accurate AI-powered transcriptions with timestamps.
+A comprehensive local web application that transcribes audio files using OpenAI's Whisper model and provides intelligent chat capabilities. Upload audio files, get accurate AI-powered transcriptions, and chat with your content using Scribe AI.
 
 ## ✨ Features
 
 - **Local Processing**: All transcription happens on your machine - no cloud services needed
 - **Multiple Audio Formats**: Supports WAV, MP3, M4A, OGG, and FLAC files
 - **Timestamped Output**: Get transcriptions with precise timestamps
-- **Modern UI**: Beautiful, responsive React frontend
+- **AI Chat**: Chat with Scribe AI about your transcripts and documents
+- **Study Notes**: Generate structured study notes with dedicated templates
+- **Document Ingestion**: Upload PDFs, DOCX files, or paste text for chat context
+- **Modern UI**: Beautiful, responsive React frontend with organized tabs
 - **Fast Processing**: Uses faster-whisper for optimized performance
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Node.js + Express
+- **Backend**: Node.js + Express with Ollama integration
 - **Frontend**: React + Vite
-- **AI Model**: OpenAI Whisper (via faster-whisper)
+- **AI Models**: OpenAI Whisper (via faster-whisper) + Ollama for chat/summarization
 - **Storage**: Local file system
 
 ## 📋 Prerequisites
@@ -88,11 +91,23 @@ The frontend will run on `http://localhost:5173`
 
 ## 📱 How to Use
 
+### Transcription
 1. Open your browser and go to `http://localhost:5173`
-2. Click "Choose Audio File" and select an audio file
-3. Click "Upload & Transcribe" to start the transcription process
-4. Wait for the AI to process your audio (this may take a few minutes)
-5. View your transcription with timestamps!
+2. Navigate to the "Import Transcript" tab
+3. Click "Choose Audio File" and select an audio file
+4. Click "Transcribe File" to start the transcription process
+5. View your transcription and generate summaries with study notes
+
+### Recording
+1. Go to the "Transcripts" tab
+2. Click "Record" in the top bar
+3. Choose microphone or system audio recording
+4. Transcribe and summarize your recordings
+
+### Chat
+1. Navigate to the "Chat" tab
+2. Upload documents or paste text as sources
+3. Chat with Scribe AI about your content
 
 ## 📂 Project Structure
 
@@ -115,9 +130,20 @@ transcribeapp/
 
 ## 🔧 API Endpoints
 
+### Transcription
 - `POST /upload` - Upload audio file and start transcription
 - `GET /transcript/:filename` - Get transcription content
 - `GET /transcripts/:filename` - Serve transcript files
+- `GET /recordings` - List saved recordings
+- `DELETE /recording/:filename` - Delete recording
+
+### Chat & Summarization
+- `POST /chat` - Chat with AI using context from transcripts/documents
+- `POST /summarize` - Generate summaries with custom styles
+- `POST /ingest/file` - Upload documents for chat context
+- `POST /ingest/text` - Add text for chat context
+- `GET /ingest/list` - List ingested documents
+- `DELETE /ingest/:id` - Remove ingested document
 
 ## 🎨 Supported Audio Formats
 

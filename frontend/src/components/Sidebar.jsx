@@ -3,7 +3,7 @@ import React from 'react';
 export default function Sidebar({ currentView = 'chat', onNavigate = () => {} }) {
   return (
     <aside className="otter-sidebar">
-      <div className="sidebar-header">Oll+</div>
+      <div className="sidebar-header">ScribeFlow</div>
       <nav className="sidebar-nav">
         <button
           className={`nav-btn ${currentView === 'chat' ? 'active' : ''}`}

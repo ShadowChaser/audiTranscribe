@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import './App.css';
 import RecordPanel from './components/RecordPanel.jsx';
 import UploadPanel from './components/UploadPanel.jsx';
@@ -61,23 +63,28 @@ function App() {
   // Transcripts management helpers
   const clearAllTranscripts = () => {
     setRecordings([]);
+    toast.success('All transcripts cleared!');
   };
 
   const clearRecordingSummary = (recordingId) => {
     setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: '' } : r));
+    toast.success('Summary cleared!');
   };
 
   const clearSavedRecordingSummary = (filename) => {
     setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: '' } : r));
+    toast.success('Summary cleared!');
   };
 
   const clearAllSummaries = () => {
     setRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
     setSavedRecordings(prev => prev.map(r => ({ ...r, summary: '' })));
+    toast.success('All summaries cleared!');
   };
 
   const clearImportSummary = () => {
     setImportSummary('');
+    toast.success('Import summary cleared!');
   };
 
   // Clear current imported file/transcript/summary
@@ -85,6 +92,7 @@ function App() {
     setFile(null);
     setTranscript('');
     setImportSummary('');
+    toast.success('Import cleared!');
   };
 
   // Ingest: attach file for chat
@@ -96,9 +104,12 @@ function App() {
       const { id, doc } = res.data;
       setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
       setError('');
+      toast.success(`File "${doc.name}" attached successfully!`);
     } catch (e) {
       console.error('Attach file error:', e);
-      setError(e.response?.data?.error || 'Failed to attach file for chat');
+      const errorMsg = e.response?.data?.error || 'Failed to attach file for chat';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
@@ -109,9 +120,12 @@ function App() {
       const { id, doc } = res.data;
       setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
       setError('');
+      toast.success('Text added as source successfully!');
     } catch (e) {
       console.error('Paste text error:', e);
-      setError(e.response?.data?.error || 'Failed to add pasted text for chat');
+      const errorMsg = e.response?.data?.error || 'Failed to add pasted text for chat';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
@@ -120,9 +134,11 @@ function App() {
       setSources(prev => prev.filter(s => s.id !== id));
       // Best-effort delete on backend (ok if it fails)
       await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
+      toast.success('Source removed successfully!');
     } catch (e) {
       // no-op: removing source locally is sufficient
       console.warn('Failed to remove source on backend:', e?.message || e);
+      toast.error('Failed to remove source');
     }
   };
 
@@ -181,9 +197,12 @@ function App() {
       setError('');
       const s = await _summarizeText(transcript, style);
       setImportSummary(s); // Import view summary
+      toast.success('Summary generated successfully!');
     } catch (err) {
       console.error('Summarization error:', err);
-      setError(err.response?.data?.error || 'Failed to summarize. Ensure Ollama is running (port 11434) and model is available.');
+      const errorMsg = err.response?.data?.error || 'Failed to summarize. Ensure Ollama is running (port 11434) and model is available.';
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setImportSummarizing(false);
     }
@@ -198,9 +217,12 @@ function App() {
       setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: true } : r));
       const s = await _summarizeText(rec.transcript, style);
       setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: s, summarizing: false } : r));
+      toast.success('Recording summary generated!');
     } catch (err) {
       console.error('Summarization error:', err);
-      setError(err.response?.data?.error || 'Failed to summarize recording.');
+      const errorMsg = err.response?.data?.error || 'Failed to summarize recording.';
+      setError(errorMsg);
+      toast.error(errorMsg);
       setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: false } : r));
     }
   };
@@ -213,9 +235,12 @@ function App() {
       setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: true } : r));
       const s = await _summarizeText(item.transcript, style);
       setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: s, summarizing: false } : r));
+      toast.success('Saved recording summary generated!');
     } catch (err) {
       console.error('Summarization error:', err);
-      setError(err.response?.data?.error || 'Failed to summarize saved recording.');
+      const errorMsg = err.response?.data?.error || 'Failed to summarize saved recording.';
+      setError(errorMsg);
+      toast.error(errorMsg);
       setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: false } : r));
     }
   };
@@ -229,9 +254,12 @@ function App() {
         setError("");
         // Ensure user is on Import view when a file is chosen
         setCurrentView('import');
+        toast.success(`File "${selectedFile.name}" selected successfully!`);
       } else {
-        setError("Please select a valid audio file (wav, mp3, m4a, ogg, flac)");
+        const errorMsg = "Please select a valid audio file (wav, mp3, m4a, ogg, flac)";
+        setError(errorMsg);
         setFile(null);
+        toast.error(errorMsg);
       }
     }
   };
@@ -364,13 +392,10 @@ function App() {
   const copyToClipboard = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
-      // Show temporary success message
-      const originalError = error;
-      setError('✅ Transcript copied to clipboard!');
-      setTimeout(() => setError(originalError), 2000);
+      toast.success('Copied to clipboard!');
     } catch (err) {
       console.error('Failed to copy text: ', err);
-      setError('Failed to copy to clipboard. Please select and copy manually.');
+      toast.error('Failed to copy to clipboard. Please select and copy manually.');
     }
   };
 
@@ -456,10 +481,13 @@ function App() {
             backendFilename: backendFilename
           } : r
         ));
+        toast.success('Recording transcribed successfully!');
       }
     } catch (err) {
       console.error('Transcription error:', err);
-      setError('Failed to transcribe audio: ' + (err.response?.data?.error || err.message));
+      const errorMsg = 'Failed to transcribe audio: ' + (err.response?.data?.error || err.message);
+      setError(errorMsg);
+      toast.error(errorMsg);
       // Update recording with error state
       setRecordings(prev => prev.map(r => 
         r.id === recordingId ? { ...r, transcript: 'Transcription failed' } : r
@@ -476,6 +504,7 @@ function App() {
 
     // Remove from frontend immediately
     setRecordings(prev => prev.filter(r => r.id !== recordingId));
+    toast.success('Recording deleted successfully!');
 
     // Clean up backend files if they exist
     if (recording.backendFilename) {
@@ -502,9 +531,12 @@ function App() {
     try {
       await axios.delete(`http://localhost:3001/recording/${filename}`);
       fetchSavedRecordings(); // Refresh the list
+      toast.success('Saved recording deleted successfully!');
     } catch (err) {
       console.error('Failed to delete saved recording:', err);
-      setError('Failed to delete recording');
+      const errorMsg = 'Failed to delete recording';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
@@ -535,9 +567,12 @@ function App() {
       
       setTranscript(transcriptRes.data.content);
       setImportSummary(''); // clear previous import summary
+      toast.success('File transcribed successfully!');
     } catch (err) {
       console.error("Upload error:", err);
-      setError(err.response?.data?.error || "Failed to transcribe audio. Make sure the backend is running.");
+      const errorMsg = err.response?.data?.error || "Failed to transcribe audio. Make sure the backend is running.";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -603,6 +638,8 @@ function App() {
                           onClick={(e) => { e.stopPropagation(); transcribeRecording(recording.id); }}
                           className="btn btn-primary btn-sm"
                           disabled={loading}
+                          title={recording.transcript === 'Transcribing...' ? 'Transcribing audio...' : 
+                                 recording.transcript && recording.transcript !== '' ? 'Transcription complete' : 'Start transcription'}
                         >
                           {recording.transcript === 'Transcribing...' ? '⏳' : 
                            recording.transcript && recording.transcript !== '' ? '✅' : '✨'}
@@ -625,19 +662,13 @@ function App() {
                             >
                               {recording.summarizing ? '⏳' : '📘'}
                             </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); clearRecordingSummary(recording.id); }}
-                              className="btn btn-secondary btn-sm"
-                              title="Clear this summary"
-                            >
-                              🧽
-                            </button>
                           </>
                         )}
                         <button 
                           onClick={(e) => { e.stopPropagation(); deleteRecording(recording.id); }}
                           className="btn btn-secondary btn-sm"
                           style={{color: '#b91c1c'}}
+                          title="Delete this recording"
                         >
                           🗑️
                         </button>
@@ -651,12 +682,23 @@ function App() {
                       subtitle="Concise notes"
                       fullText={recording.summary}
                       actions={
-                        <button 
-                          onClick={() => copyToClipboard(recording.summary)}
-                          className="btn btn-outline btn-sm"
-                        >
-                          📋 Copy
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => copyToClipboard(recording.summary)}
+                            className="btn btn-outline btn-sm"
+                            title="Copy summary to clipboard"
+                          >
+                            📋 Copy
+                          </button>
+                          <button
+                            onClick={() => clearRecordingSummary(recording.id)}
+                            className="btn btn-secondary btn-sm"
+                            style={{color: '#b91c1c'}}
+                            title="Clear this summary"
+                          >
+                            🗑️ Clear
+                          </button>
+                        </>
                       }
                     />
                   )}
@@ -669,7 +711,7 @@ function App() {
                   <FeedCard
                     key={recording.filename}
                     avatar="📁"
-                    title={`Learn how to use Otter`}
+                    title={recording.filename || 'Saved Recording'}
                     subtitle={`${Math.floor(Math.random() * 24)}h ${Math.floor(Math.random() * 60)}m • ${Math.floor(Math.random() * 60)} minutes • General`}
                     fullText={recording.transcript || undefined}
                     snippet={!recording.transcript ? 'No transcript available for this recording' : undefined}
@@ -702,19 +744,13 @@ function App() {
                             >
                               {recording.summarizing ? '⏳' : '📘'}
                             </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); clearSavedRecordingSummary(recording.filename); }}
-                              className="btn btn-secondary btn-sm"
-                              title="Clear this summary"
-                            >
-                              🧽
-                            </button>
                           </>
                         )}
                         <button 
                           onClick={(e) => { e.stopPropagation(); deleteSavedRecording(recording.filename); }}
                           className="btn btn-secondary btn-sm"
                           style={{color: '#b91c1c'}}
+                          title="Delete this saved recording"
                         >
                           🗑️
                         </button>
@@ -728,12 +764,23 @@ function App() {
                       subtitle="Concise notes"
                       fullText={recording.summary}
                       actions={
-                        <button 
-                          onClick={() => copyToClipboard(recording.summary)}
-                          className="btn btn-outline btn-sm"
-                        >
-                          📋 Copy
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => copyToClipboard(recording.summary)}
+                            className="btn btn-outline btn-sm"
+                            title="Copy summary to clipboard"
+                          >
+                            📋 Copy
+                          </button>
+                          <button
+                            onClick={() => clearSavedRecordingSummary(recording.filename)}
+                            className="btn btn-secondary btn-sm"
+                            style={{color: '#b91c1c'}}
+                            title="Clear this summary"
+                          >
+                            🗑️ Clear
+                          </button>
+                        </>
                       }
                     />
                   )}
@@ -791,6 +838,7 @@ function App() {
                       <button 
                         onClick={() => copyToClipboard(transcript)}
                         className="btn btn-outline btn-sm"
+                        title="Copy transcript to clipboard"
                       >
                         📋 Copy
                       </button>
@@ -835,6 +883,7 @@ function App() {
                       <button 
                         onClick={() => copyToClipboard(importSummary)}
                         className="btn btn-outline btn-sm"
+                        title="Copy summary to clipboard"
                       >
                         📋 Copy
                       </button>
@@ -860,13 +909,14 @@ function App() {
                 <FeedCard
                   key={index}
                   avatar={msg.role === 'user' ? '👤' : '🤖'}
-                  title={msg.role === 'user' ? 'You' : 'Otter AI'}
+                  title={msg.role === 'user' ? 'You' : 'Scribe AI'}
                   subtitle={msg.timestamp.toLocaleTimeString()}
                   fullText={msg.content}
                   actions={
                     <button 
                       onClick={() => copyToClipboard(msg.content)}
                       className="btn btn-outline btn-sm"
+                      title="Copy message to clipboard"
                     >
                       📋 Copy
                     </button>
@@ -901,6 +951,20 @@ function App() {
           )}
         </div>
       </main>
+
+      {/* Toast Container for notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
 
       {/* Bottom chat input - only in Chat view */}
       {currentView === 'chat' && (

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import jsPDF from 'jspdf';
 import './App.css';
 import RecordPanel from './components/RecordPanel.jsx';
 import UploadPanel from './components/UploadPanel.jsx';
@@ -21,6 +22,8 @@ function App() {
   const [transcript, setTranscript] = useState('');
   const [importSummary, setImportSummary] = useState(''); // For Import view only
   const [importSummarizing, setImportSummarizing] = useState(false);
+  const [editingTitles, setEditingTitles] = useState({}); // Track which titles are being edited
+  const [customTitles, setCustomTitles] = useState({}); // Store custom titles
   // Removed unused transcriptsSummary and transcriptsSummarizing states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -68,11 +71,19 @@ function App() {
 
   const clearRecordingSummary = (recordingId) => {
     setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: '' } : r));
+    // Clear custom title when summary is cleared
+    const titleKey = `recording_${recordingId}`;
+    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
+    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
     toast.success('Summary cleared!');
   };
 
   const clearSavedRecordingSummary = (filename) => {
     setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: '' } : r));
+    // Clear custom title when summary is cleared
+    const titleKey = `saved_${filename}`;
+    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
+    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
     toast.success('Summary cleared!');
   };
 
@@ -84,7 +95,104 @@ function App() {
 
   const clearImportSummary = () => {
     setImportSummary('');
+    // Clear custom title when summary is cleared
+    const titleKey = 'import_summary';
+    setCustomTitles(prev => ({ ...prev, [titleKey]: undefined }));
+    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
     toast.success('Import summary cleared!');
+  };
+
+  // Generate dynamic summary title based on content
+  const generateSummaryTitle = (summaryText) => {
+    if (!summaryText) return 'Summary Results';
+    
+    const text = summaryText.toLowerCase();
+    
+    // Educational content
+    if (text.includes('lesson') || text.includes('chapter') || text.includes('course') || text.includes('tutorial')) {
+      return 'Learning Notes';
+    }
+    // Meeting content
+    if (text.includes('meeting') || text.includes('agenda') || text.includes('action item') || text.includes('discussed')) {
+      return 'Meeting Summary';
+    }
+    // Research content
+    if (text.includes('research') || text.includes('study') || text.includes('analysis') || text.includes('findings')) {
+      return 'Research Insights';
+    }
+    // Technical content
+    if (text.includes('code') || text.includes('programming') || text.includes('software') || text.includes('technical')) {
+      return 'Technical Notes';
+    }
+    // Interview content
+    if (text.includes('interview') || text.includes('candidate') || text.includes('questions') || text.includes('responses')) {
+      return 'Interview Summary';
+    }
+    // News/Media content
+    if (text.includes('news') || text.includes('report') || text.includes('breaking') || text.includes('update')) {
+      return 'News Brief';
+    }
+    // Business content
+    if (text.includes('business') || text.includes('strategy') || text.includes('revenue') || text.includes('market')) {
+      return 'Business Summary';
+    }
+    // Default fallback
+    return 'Content Summary';
+  };
+
+  // Export summary to PDF
+  const exportToPDF = async (summaryText, title) => {
+    try {
+      const pdf = new jsPDF();
+      
+      // Add title
+      pdf.setFontSize(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(title, 20, 30);
+      
+      // Add timestamp
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Generated on: ${new Date().toLocaleString()}`, 20, 40);
+      
+      // Add content
+      pdf.setFontSize(12);
+      const splitText = pdf.splitTextToSize(summaryText, 170);
+      pdf.text(splitText, 20, 60);
+      
+      // Save the PDF
+      pdf.save(`${title.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
+      toast.success('PDF exported successfully!');
+    } catch (err) {
+      console.error('PDF export error:', err);
+      toast.error('Failed to export PDF');
+    }
+  };
+
+  // Get title for summary (custom or generated)
+  const getSummaryTitle = (summaryText, id, type = 'recording') => {
+    const titleKey = `${type}_${id}`;
+    return customTitles[titleKey] || generateSummaryTitle(summaryText);
+  };
+
+  // Start editing title
+  const startEditingTitle = (id, type = 'recording') => {
+    const titleKey = `${type}_${id}`;
+    setEditingTitles(prev => ({ ...prev, [titleKey]: true }));
+  };
+
+  // Save edited title
+  const saveTitle = (id, newTitle, type = 'recording') => {
+    const titleKey = `${type}_${id}`;
+    setCustomTitles(prev => ({ ...prev, [titleKey]: newTitle.trim() || generateSummaryTitle('') }));
+    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
+    toast.success('Title updated!');
+  };
+
+  // Cancel editing title
+  const cancelEditingTitle = (id, type = 'recording') => {
+    const titleKey = `${type}_${id}`;
+    setEditingTitles(prev => ({ ...prev, [titleKey]: false }));
   };
 
   // Clear current imported file/transcript/summary
@@ -678,7 +786,50 @@ function App() {
                   {recording.summary && (
                     <FeedCard
                       avatar="🧠"
-                      title={`Summary for Recording #${recordings.length - index}`}
+                      title={
+                        editingTitles[`recording_${recording.id}`] ? (
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              defaultValue={getSummaryTitle(recording.summary, recording.id, 'recording')}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  saveTitle(recording.id, e.target.value, 'recording');
+                                } else if (e.key === 'Escape') {
+                                  cancelEditingTitle(recording.id, 'recording');
+                                }
+                              }}
+                              onBlur={(e) => saveTitle(recording.id, e.target.value, 'recording')}
+                              autoFocus
+                              style={{ 
+                                border: '1px solid #ccc', 
+                                borderRadius: '4px', 
+                                padding: '4px 8px',
+                                fontSize: '14px',
+                                minWidth: '200px'
+                              }}
+                            />
+                            <button
+                              onClick={() => cancelEditingTitle(recording.id, 'recording')}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                              title="Cancel editing"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span>{getSummaryTitle(recording.summary, recording.id, 'recording')}</span>
+                            <button
+                              onClick={() => startEditingTitle(recording.id, 'recording')}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                              title="Edit title"
+                            >
+                              ✏️
+                            </button>
+                          </div>
+                        )
+                      }
                       subtitle="Concise notes"
                       fullText={recording.summary}
                       actions={
@@ -689,6 +840,13 @@ function App() {
                             title="Copy summary to clipboard"
                           >
                             📋 Copy
+                          </button>
+                          <button
+                            onClick={() => exportToPDF(recording.summary, getSummaryTitle(recording.summary, recording.id, 'recording'))}
+                            className="btn btn-primary btn-sm"
+                            title="Export to PDF"
+                          >
+                            📄 PDF
                           </button>
                           <button
                             onClick={() => clearRecordingSummary(recording.id)}
@@ -760,7 +918,50 @@ function App() {
                   {recording.summary && (
                     <FeedCard
                       avatar="🧠"
-                      title={`Summary for ${recording.filename}`}
+                      title={
+                        editingTitles[`saved_${recording.filename}`] ? (
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              defaultValue={getSummaryTitle(recording.summary, recording.filename, 'saved')}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  saveTitle(recording.filename, e.target.value, 'saved');
+                                } else if (e.key === 'Escape') {
+                                  cancelEditingTitle(recording.filename, 'saved');
+                                }
+                              }}
+                              onBlur={(e) => saveTitle(recording.filename, e.target.value, 'saved')}
+                              autoFocus
+                              style={{ 
+                                border: '1px solid #ccc', 
+                                borderRadius: '4px', 
+                                padding: '4px 8px',
+                                fontSize: '14px',
+                                minWidth: '200px'
+                              }}
+                            />
+                            <button
+                              onClick={() => cancelEditingTitle(recording.filename, 'saved')}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                              title="Cancel editing"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span>{getSummaryTitle(recording.summary, recording.filename, 'saved')}</span>
+                            <button
+                              onClick={() => startEditingTitle(recording.filename, 'saved')}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                              title="Edit title"
+                            >
+                              ✏️
+                            </button>
+                          </div>
+                        )
+                      }
                       subtitle="Concise notes"
                       fullText={recording.summary}
                       actions={
@@ -771,6 +972,13 @@ function App() {
                             title="Copy summary to clipboard"
                           >
                             📋 Copy
+                          </button>
+                          <button
+                            onClick={() => exportToPDF(recording.summary, getSummaryTitle(recording.summary, recording.filename, 'saved'))}
+                            className="btn btn-primary btn-sm"
+                            title="Export to PDF"
+                          >
+                            📄 PDF
                           </button>
                           <button
                             onClick={() => clearSavedRecordingSummary(recording.filename)}
@@ -875,7 +1083,50 @@ function App() {
               {importSummary && (
                 <FeedCard
                   avatar="🧠"
-                  title="Summary Results"
+                  title={
+                    editingTitles['import_summary'] ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          defaultValue={getSummaryTitle(importSummary, 'summary', 'import')}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              saveTitle('summary', e.target.value, 'import');
+                            } else if (e.key === 'Escape') {
+                              cancelEditingTitle('summary', 'import');
+                            }
+                          }}
+                          onBlur={(e) => saveTitle('summary', e.target.value, 'import')}
+                          autoFocus
+                          style={{ 
+                            border: '1px solid #ccc', 
+                            borderRadius: '4px', 
+                            padding: '4px 8px',
+                            fontSize: '14px',
+                            minWidth: '200px'
+                          }}
+                        />
+                        <button
+                          onClick={() => cancelEditingTitle('summary', 'import')}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                          title="Cancel editing"
+                        >
+                          ❌
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span>{getSummaryTitle(importSummary, 'summary', 'import')}</span>
+                        <button
+                          onClick={() => startEditingTitle('summary', 'import')}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                          title="Edit title"
+                        >
+                          ✏️
+                        </button>
+                      </div>
+                    )
+                  }
                   subtitle="Concise study notes"
                   fullText={importSummary}
                   actions={
@@ -886,6 +1137,13 @@ function App() {
                         title="Copy summary to clipboard"
                       >
                         📋 Copy
+                      </button>
+                      <button
+                        onClick={() => exportToPDF(importSummary, getSummaryTitle(importSummary, 'summary', 'import'))}
+                        className="btn btn-primary btn-sm"
+                        title="Export to PDF"
+                      >
+                        📄 PDF
                       </button>
                       <button 
                         onClick={clearImportSummary}
@@ -909,7 +1167,7 @@ function App() {
                 <FeedCard
                   key={index}
                   avatar={msg.role === 'user' ? '👤' : '🤖'}
-                  title={msg.role === 'user' ? 'You' : 'Scribe AI'}
+                  title={msg.role === 'user' ? 'You' : 'Nexus AI'}
                   subtitle={msg.timestamp.toLocaleTimeString()}
                   fullText={msg.content}
                   actions={
@@ -969,7 +1227,6 @@ function App() {
       {/* Bottom chat input - only in Chat view */}
       {currentView === 'chat' && (
         <ChatInput 
-          onGetStarted={() => setShowRecordModal(true)} 
           onSendMessage={handleChatMessage}
           isLoading={chatLoading}
           onAttachFile={attachFileToChat}

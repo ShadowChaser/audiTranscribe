@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-export default function ChatInput({ onGetStarted, onSendMessage, isLoading, onAttachFile, onOpenPasteModal, sources = [], onRemoveSource }) {
+export default function ChatInput({ onSendMessage, isLoading, onAttachFile, onOpenPasteModal, sources = [], onRemoveSource }) {
   const [message, setMessage] = useState('');
   const fileInputRef = useRef(null);
 
@@ -68,10 +68,6 @@ export default function ChatInput({ onGetStarted, onSendMessage, isLoading, onAt
             )}
           </button>
         </form>
-        <button className="get-started-btn" onClick={onGetStarted}>
-          <span className="get-started-fraction">0/3</span>
-          <span>Get started</span>
-        </button>
       </div>
     </div>
   );

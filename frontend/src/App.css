@@ -99,6 +99,99 @@ body {
   margin-bottom: 1.5rem;
 }
 
+/* Layout helpers for better alignment */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  padding: 2.5rem 1rem 1rem 1rem;
+  text-align: center;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 3rem 1.25rem;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.col-12 { grid-column: span 12; }
+.col-8 { grid-column: span 8; }
+.col-6 { grid-column: span 6; }
+.col-4 { grid-column: span 4; }
+
+@media (max-width: 1024px) {
+  .content-grid { gap: 1rem; }
+}
+
+@media (max-width: 900px) {
+  .col-6, .col-8, .col-4 { grid-column: span 12; }
+}
+
+.section-title {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.recorded-audio-section {
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.recording-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.recording-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+
+.audio-player {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+}
+
+.actions-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.btn-icon {
+  padding: 0.5rem 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  border-radius: 12px;
+}
+
 /* Modern Button Styles */
 .btn {
   display: inline-flex;

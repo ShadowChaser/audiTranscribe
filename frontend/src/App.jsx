@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
+import Header from './components/Header.jsx';
+import Footer from './components/Footer.jsx';
+import RecordPanel from './components/RecordPanel.jsx';
+import UploadPanel from './components/UploadPanel.jsx';
+import SavedRecordings from './components/SavedRecordings.jsx';
+import TranscriptCard from './components/TranscriptCard.jsx';
+import SummaryCard from './components/SummaryCard.jsx';
 
 function App() {
   const [file, setFile] = useState(null);
@@ -362,458 +369,161 @@ function App() {
   };
 
   return (
-    <div className="app">
-      <div className="header">
-        <h1 className="title">Audio Transcriber</h1>
-        <p className="subtitle">Transform your audio into text with AI-powered transcription</p>
-      </div>
-      
-      <div className="cards-grid">
-        {/* Recording Card */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-icon">🎤</div>
-            <div>
-              <h3 className="card-title">Record Audio</h3>
-              <p className="card-description">Record microphone or system audio for transcription</p>
-            </div>
-          </div>
-          
-          {!isRecording && (
-            <div style={{marginBottom: '1rem'}}>
-              <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
-                <button 
-                  onClick={() => setRecordingType('microphone')}
-                  className={`btn ${recordingType === 'microphone' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{flex: 1}}
-                >
-                  🎤 Microphone
-                </button>
-                <button 
-                  onClick={() => setRecordingType('system')}
-                  className={`btn ${recordingType === 'system' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{flex: 1}}
-                >
-                  🔊 System Audio
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {!isRecording && (
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '12px',
-              padding: '1rem',
-              marginBottom: '1.5rem',
-              border: '1px solid rgba(255, 255, 255, 0.1)'
-            }}>
-              <p style={{margin: '0 0 0.5rem 0', fontSize: '0.9rem', opacity: 0.9}}>
-                📋 <strong>Instructions:</strong>
-              </p>
-              <p style={{margin: 0, fontSize: '0.85rem', opacity: 0.8, lineHeight: '1.4'}}>
-                Click "Start Recording" → Allow screen sharing with audio → Select your entire screen or specific app → 
-                The system will continuously listen and capture all audio until you stop recording.
-              </p>
-            </div>
-          )}
-          
-          <div className="recording-controls">
-            {!isRecording ? (
-              <button 
-                onClick={() => startRecording(recordingType)}
-                className="btn btn-danger btn-lg"
-                disabled={loading}
-              >
-                🎙️ Start Recording
-              </button>
-            ) : (
-              <div className="recording-active">
-                <button 
-                  onClick={stopRecording}
-                  className="btn btn-secondary btn-lg"
-                >
-                  ⏹️ Stop Recording
-                </button>
-                <div className="recording-indicator">
-                  <div className="pulse"></div>
-                  Recording in progress...
-                </div>
+    <div className="app-shell">
+      <Header />
+      <main className="container">
+        <div className="content-grid">
+          {/* Recording Panel */}
+          <div className="col-6">
+            <RecordPanel 
+              isRecording={isRecording}
+              recordingType={recordingType}
+              setRecordingType={setRecordingType}
+              startRecording={startRecording}
+              stopRecording={stopRecording}
+              loading={loading}
+            />
+
+            {/* Multiple Recordings Display */}
+            {recordings.length > 0 && (
+              <div style={{marginTop: '1.5rem'}}>
+                <h4 className="section-title">🎵 Recordings ({recordings.length})</h4>
+                {recordings.map((recording, index) => (
+                  <div key={recording.id} className="recorded-audio-section">
+                    <div className="recording-header">
+                      <div className="recording-meta">
+                        <div style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: recording.type === 'system' ? 
+                            'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 
+                            'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)'
+                        }}></div>
+                        <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
+                          {recording.type === 'system' ? '🔊' : '🎤'} Recording #{recordings.length - index}
+                        </h5>
+                        <span className="badge">{(recording.size / 1024).toFixed(1)} KB</span>
+                        <span style={{fontSize: '0.75rem', opacity: 0.6}}>{recording.timestamp.toLocaleTimeString()}</span>
+                      </div>
+                      <button 
+                        onClick={() => deleteRecording(recording.id)}
+                        className="btn btn-secondary btn-icon"
+                        style={{background: 'rgba(255, 107, 107, 0.2)', border: '1px solid rgba(255, 107, 107, 0.3)', color: '#ff6b6b'}}
+                        title="Delete recording and backend files"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                    
+                    <audio controls src={recording.url} className="audio-player" />
+                    
+                    <div className="actions-row">
+                      <button 
+                        onClick={() => transcribeRecording(recording.id)}
+                        className="btn btn-primary"
+                        disabled={loading}
+                        style={{width: '100%'}}
+                      >
+                        {recording.transcript === 'Transcribing...' ? '⏳ Transcribing...' : 
+                         recording.transcript && recording.transcript !== '' ? '✅ Transcribed' : '✨ Transcribe'}
+                      </button>
+                      {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                        <button
+                          onClick={() => summarizeRecordingTranscript(recording.id)}
+                          className="btn btn-secondary"
+                          disabled={recording.summarizing}
+                          title="Summarize this recording's transcript"
+                        >
+                          {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
+                        </button>
+                      )}
+                      {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                        <button
+                          onClick={() => copyToClipboard(recording.transcript)}
+                          className="btn btn-outline"
+                          title="Copy transcript"
+                        >
+                          📋 Copy Transcript
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.href = recording.url;
+                          link.download = `recording-${recording.id}.webm`;
+                          link.click();
+                        }}
+                        className="btn btn-secondary"
+                        title="Download recording"
+                      >
+                        💾
+                      </button>
+                    </div>
+
+                    {/* Show transcript if available */}
+                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                      <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        border: '1px solid rgba(255, 255, 255, 0.05)'
+                      }}>
+                        <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
+                        <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                          {recording.transcript}
+                        </p>
+                        {recording.summary && (
+                          <div style={{
+                            marginTop: '0.8rem',
+                            background: 'rgba(0, 0, 0, 0.2)',
+                            borderRadius: '8px',
+                            padding: '0.8rem',
+                            border: '1px solid rgba(255, 255, 255, 0.06)'
+                          }}>
+                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
+                              <h6 style={{margin: 0, fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
+                              <button
+                                onClick={() => copyToClipboard(recording.summary)}
+                                className="btn btn-outline btn-sm"
+                                title="Copy summary"
+                              >
+                                📋 Copy Summary
+                              </button>
+                            </div>
+                            <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                              {recording.summary}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          
-          {/* Multiple Recordings Display */}
-          {recordings.length > 0 && (
-            <div style={{marginTop: '1.5rem'}}>
-              <h4 style={{margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: '600'}}>
-                🎵 Recordings ({recordings.length})
-              </h4>
-              {recordings.map((recording, index) => (
-                <div key={recording.id} className="recorded-audio-section" style={{
-                  marginBottom: '1rem',
-                  padding: '1.5rem',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '1rem'
-                  }}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                      <div style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: recording.type === 'system' ? 
-                          'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 
-                          'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)'
-                      }}></div>
-                      <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
-                        {recording.type === 'system' ? '🔊' : '🎤'} Recording #{recordings.length - index}
-                      </h5>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        opacity: 0.7,
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        padding: '0.2rem 0.5rem',
-                        borderRadius: '6px'
-                      }}>
-                        {(recording.size / 1024).toFixed(1)} KB
-                      </span>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        opacity: 0.6
-                      }}>
-                        {recording.timestamp.toLocaleTimeString()}
-                      </span>
-                    </div>
-                    <button 
-                      onClick={() => deleteRecording(recording.id)}
-                      className="btn btn-secondary"
-                      style={{
-                        padding: '0.3rem 0.6rem',
-                        fontSize: '0.75rem',
-                        background: 'rgba(255, 107, 107, 0.2)',
-                        border: '1px solid rgba(255, 107, 107, 0.3)',
-                        color: '#ff6b6b'
-                      }}
-                      title="Delete recording and backend files"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                  
-                  <audio 
-                    controls 
-                    src={recording.url} 
-                    style={{
-                      width: '100%', 
-                      marginBottom: '1rem',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  
-                  <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
-                    <button 
-                      onClick={() => transcribeRecording(recording.id)}
-                      className="btn btn-primary"
-                      disabled={loading}
-                      style={{flex: 1}}
-                    >
-                      {recording.transcript === 'Transcribing...' ? '⏳ Transcribing...' : 
-                       recording.transcript && recording.transcript !== '' ? '✅ Transcribed' : '✨ Transcribe'}
-                    </button>
-                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                      <button
-                        onClick={() => summarizeRecordingTranscript(recording.id)}
-                        className="btn btn-secondary"
-                        disabled={recording.summarizing}
-                        title="Summarize this recording's transcript"
-                      >
-                        {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
-                      </button>
-                    )}
-                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                      <button
-                        onClick={() => copyToClipboard(recording.transcript)}
-                        className="btn btn-outline"
-                        title="Copy transcript"
-                      >
-                        📋 Copy Transcript
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = recording.url;
-                        link.download = `recording-${recording.id}.webm`;
-                        link.click();
-                      }}
-                      className="btn btn-secondary"
-                      title="Download recording"
-                    >
-                      💾
-                    </button>
-                  </div>
 
-                  {/* Show transcript if available */}
-                  {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                    <div style={{
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      border: '1px solid rgba(255, 255, 255, 0.05)'
-                    }}>
-                      <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
-                      <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                        {recording.transcript}
-                      </p>
-                      {recording.summary && (
-                        <div style={{
-                          marginTop: '0.8rem',
-                          background: 'rgba(0, 0, 0, 0.2)',
-                          borderRadius: '8px',
-                          padding: '0.8rem',
-                          border: '1px solid rgba(255, 255, 255, 0.06)'
-                        }}>
-                          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
-                            <h6 style={{margin: 0, fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
-                            <button
-                              onClick={() => copyToClipboard(recording.summary)}
-                              className="btn btn-outline btn-sm"
-                              title="Copy summary"
-                            >
-                              📋 Copy Summary
-                            </button>
-                          </div>
-                          <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                            {recording.summary}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Upload Card */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-icon">📁</div>
-            <div>
-              <h3 className="card-title">Upload File</h3>
-              <p className="card-description">Upload audio files (WAV, MP3, M4A, OGG, FLAC)</p>
-            </div>
-          </div>
-          
-          <div className="file-upload-area" onClick={() => document.getElementById('file-input').click()}>
-            <div className="upload-icon">📤</div>
-            <div className="upload-text">
-              {file ? file.name : 'Click to select audio file'}
-            </div>
-            <div className="upload-subtext">
-              Supports WAV, MP3, M4A, OGG, FLAC formats
-            </div>
-            <input
-              id="file-input"
-              type="file"
-              onChange={handleFileChange}
-              accept="audio/*"
-              className="file-input"
+          {/* Upload Panel */}
+          <div className="col-6">
+            <UploadPanel 
+              file={file}
+              onFileChange={handleFileChange}
+              onTranscribe={transcribeFile}
+              loading={loading}
             />
           </div>
-          
-          {file && (
-            <button 
-              onClick={transcribeFile}
-              className="btn btn-primary btn-lg"
-              disabled={loading}
-              style={{marginTop: '1rem', width: '100%'}}
-            >
-              {loading ? '⏳ Transcribing...' : '✨ Transcribe File'}
-            </button>
-          )}
-        </div>
 
-        {/* Saved Recordings from System */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-icon">💾</div>
-            <div>
-              <h3 className="card-title">Saved Recordings</h3>
-              <p className="card-description">All recordings and transcripts saved in the system</p>
-            </div>
+          {/* Saved Recordings from System */}
+          <div className="col-12">
+            <SavedRecordings 
+              savedRecordings={savedRecordings}
+              deleteSavedRecording={deleteSavedRecording}
+              fetchSavedRecordings={fetchSavedRecordings}
+              summarizeSavedRecording={summarizeSavedRecording}
+            />
           </div>
-          
-          {savedRecordings.length === 0 ? (
-            <div style={{
-              textAlign: 'center',
-              padding: '2rem',
-              opacity: 0.6
-            }}>
-              <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>📂</div>
-              <p>No saved recordings found</p>
-            </div>
-          ) : (
-            <div>
-              <div style={{marginBottom: '1rem', fontSize: '0.9rem', opacity: 0.8}}>
-                Found {savedRecordings.length} saved recording{savedRecordings.length !== 1 ? 's' : ''}
-              </div>
-              {savedRecordings.map((recording, index) => (
-                <div key={recording.filename} style={{
-                  marginBottom: '1rem',
-                  padding: '1.5rem',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255, 255, 255, 0.08)'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '1rem'
-                  }}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-                      <div style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: recording.hasTranscript ? 
-                          'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)' : 
-                          'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-                      }}></div>
-                      <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
-                        📁 Recording #{savedRecordings.length - index}
-                      </h5>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        opacity: 0.7,
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        padding: '0.2rem 0.5rem',
-                        borderRadius: '6px'
-                      }}>
-                        {(recording.size / 1024).toFixed(1)} KB
-                      </span>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        opacity: 0.6
-                      }}>
-                        {new Date(recording.created).toLocaleString()}
-                      </span>
-                    </div>
-                    <button 
-                      onClick={() => deleteSavedRecording(recording.filename)}
-                      className="btn btn-secondary"
-                      style={{
-                        padding: '0.3rem 0.6rem',
-                        fontSize: '0.75rem',
-                        background: 'rgba(255, 107, 107, 0.2)',
-                        border: '1px solid rgba(255, 107, 107, 0.3)',
-                        color: '#ff6b6b'
-                      }}
-                      title="Delete saved recording"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                  
-                  <audio 
-                    controls 
-                    src={`http://localhost:3001/uploads/${recording.filename}`}
-                    style={{
-                      width: '100%', 
-                      marginBottom: '1rem',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  
-                  <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
-                    <button 
-                      onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = `http://localhost:3001/uploads/${recording.filename}`;
-                        link.download = recording.filename;
-                        link.click();
-                      }}
-                      className="btn btn-secondary"
-                      title="Download recording"
-                    >
-                      💾 Download
-                    </button>
-                    {recording.hasTranscript && recording.transcript && (
-                      <button
-                        onClick={() => summarizeSavedRecording(recording.filename)}
-                        className="btn btn-secondary"
-                        disabled={recording.summarizing}
-                        title="Summarize this saved recording's transcript"
-                      >
-                        {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => fetchSavedRecordings()}
-                      className="btn btn-secondary"
-                      title="Refresh recordings"
-                    >
-                      🔄 Refresh
-                    </button>
-                  </div>
-
-                  {/* Show transcript if available */}
-                  {recording.hasTranscript && recording.transcript && (
-                    <div style={{
-                      background: 'rgba(255, 255, 255, 0.02)',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      border: '1px solid rgba(255, 255, 255, 0.05)'
-                    }}>
-                      <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
-                      <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                        {recording.transcript}
-                      </p>
-                      {recording.summary && (
-                        <div style={{
-                          marginTop: '0.8rem',
-                          background: 'rgba(0, 0, 0, 0.2)',
-                          borderRadius: '8px',
-                          padding: '0.8rem',
-                          border: '1px solid rgba(255, 255, 255, 0.06)'
-                        }}>
-                          <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
-                          <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                            {recording.summary}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {!recording.hasTranscript && (
-                    <div style={{
-                      background: 'rgba(255, 193, 7, 0.1)',
-                      borderRadius: '8px',
-                      padding: '0.8rem',
-                      border: '1px solid rgba(255, 193, 7, 0.2)',
-                      textAlign: 'center',
-                      fontSize: '0.85rem',
-                      opacity: 0.8
-                    }}>
-                      ⚠️ No transcript available for this recording
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-      </div>
 
       {/* Error Message */}
       {error && (
@@ -829,92 +539,20 @@ function App() {
       )}
       
       {/* Transcript Results */}
-      {transcript && transcript !== 'Transcribing...' && (
-        <div className="card">
-          <div className="card-header">
-            <div className="card-icon">📝</div>
-            <div style={{flex: 1}}>
-              <h3 className="card-title">Transcript</h3>
-              <p className="card-description">AI-generated transcription results</p>
-            </div>
-            <button 
-              onClick={() => copyToClipboard(transcript)}
-              className="btn btn-secondary btn-sm"
-              style={{marginLeft: 'auto'}}
-            >
-              📋 Copy
-            </button>
-            <button
-              onClick={() => summarizeTranscript()}
-              className="btn btn-primary btn-sm"
-              style={{marginLeft: '0.5rem'}}
-              disabled={summarizing}
-              title="Summarize transcript into study notes"
-            >
-              {summarizing ? '⏳ Summarizing...' : '🧠 Summarize'}
-            </button>
-          </div>
-          <div style={{
-            background: 'rgba(0, 0, 0, 0.3)',
-            borderRadius: '12px',
-            padding: '1.5rem',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            maxHeight: '400px',
-            overflowY: 'auto',
-            position: 'relative'
-          }}>
-            <pre style={{
-              color: '#ffffff',
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordWrap: 'break-word',
-              fontFamily: 'inherit',
-              fontSize: '1rem',
-              lineHeight: '1.6'
-            }}>
-              {transcript}
-            </pre>
-          </div>
-        </div>
-      )}
+      <TranscriptCard 
+        transcript={transcript}
+        onCopy={() => copyToClipboard(transcript)}
+        onSummarize={() => summarizeTranscript()}
+        summarizing={summarizing}
+      />
 
       {/* Summary Results */}
-      {summary && (
-        <div className="card">
-          <div className="card-header">
-            <div className="card-icon">🧠</div>
-            <div style={{flex: 1}}>
-              <h3 className="card-title">Summary</h3>
-              <p className="card-description">Concise study notes generated locally via Ollama</p>
-            </div>
-            <button 
-              onClick={() => copyToClipboard(summary)}
-              className="btn btn-secondary btn-sm"
-              style={{marginLeft: 'auto'}}
-            >
-              📋 Copy
-            </button>
-          </div>
-          <div style={{
-            background: 'rgba(0, 0, 0, 0.3)',
-            borderRadius: '12px',
-            padding: '1.5rem',
-            border: '1px solid rgba(255, 255, 255, 0.1)'
-          }}>
-            <pre style={{
-              color: '#ffffff',
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordWrap: 'break-word',
-              fontFamily: 'inherit',
-              fontSize: '1rem',
-              lineHeight: '1.6'
-            }}>
-              {summary}
-            </pre>
-          </div>
-        </div>
-      )}
+      <SummaryCard 
+        summary={summary}
+        onCopy={() => copyToClipboard(summary)}
+      />
+      </main>
+      <Footer />
     </div>
   );
 }

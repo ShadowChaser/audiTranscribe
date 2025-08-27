@@ -1,15 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
-import Header from './components/Header.jsx';
-import Footer from './components/Footer.jsx';
 import RecordPanel from './components/RecordPanel.jsx';
 import UploadPanel from './components/UploadPanel.jsx';
 import SavedRecordings from './components/SavedRecordings.jsx';
 import TranscriptCard from './components/TranscriptCard.jsx';
 import SummaryCard from './components/SummaryCard.jsx';
+import Sidebar from './components/Sidebar.jsx';
+import Topbar from './components/Topbar.jsx';
+import Modal from './components/Modal.jsx';
+import FeedCard from './components/FeedCard.jsx';
+import ChatInput from './components/ChatInput.jsx';
 
 function App() {
+  // Study-focused summarization template
+  const STUDY_NOTES_STYLE = `You are an assistant that creates clear, structured study notes.\n\nInput: A transcript of a lecture, book chapter, or video.\n\nOutput: Summarized notes that are concise, organized, and easy to revise later.\n\nFormatting Rules:\n- Use short bullet points, not long paragraphs.\n- Capture only the key ideas, arguments, or facts.\n- Highlight definitions, formulas, or important terms in **bold**.\n- If a process or sequence is explained, number the steps (1, 2, 3...).\n- For comparisons, use a table format.\n- Add a short “Key Takeaways” section at the end with the 3–5 most important insights.\n\nKeep the language simple and direct.`;
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState('');
   const [summary, setSummary] = useState('');
@@ -17,11 +22,24 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordTimerMs, setRecordTimerMs] = useState(0);
   const [recordings, setRecordings] = useState([]); // Array to store multiple recordings
   const [savedRecordings, setSavedRecordings] = useState([]); // Array to store saved recordings from backend
   const [recordingType, setRecordingType] = useState('microphone'); // 'microphone' or 'system'
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showRecordModal, setShowRecordModal] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [currentView, setCurrentView] = useState('chat'); // 'chat' | 'transcripts'
+  const [sources, setSources] = useState([]); // [{id, name, type}]
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteModalText, setPasteModalText] = useState('');
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const timerIntervalRef = useRef(null);
+  const startTimeRef = useRef(0);
+  const pausedAccumulatedRef = useRef(0);
 
   // Session recordings are kept in-memory only (no localStorage to avoid large payloads)
 
@@ -39,10 +57,87 @@ function App() {
     }
   };
 
+  // Ingest: attach file for chat
+  const attachFileToChat = async (fileObj) => {
+    try {
+      const form = new FormData();
+      form.append('file', fileObj);
+      const res = await axios.post('http://localhost:3001/ingest/file', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+      const { id, doc } = res.data;
+      setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
+      setError('');
+    } catch (e) {
+      console.error('Attach file error:', e);
+      setError(e.response?.data?.error || 'Failed to attach file for chat');
+    }
+  };
+
+  // Ingest: paste text for chat
+  const pasteTextToChat = async (text) => {
+    try {
+      const res = await axios.post('http://localhost:3001/ingest/text', { text }, { timeout: 120000 });
+      const { id, doc } = res.data;
+      setSources(prev => [...prev, { id, name: doc.name, type: doc.type }]);
+      setError('');
+    } catch (e) {
+      console.error('Paste text error:', e);
+      setError(e.response?.data?.error || 'Failed to add pasted text for chat');
+    }
+  };
+
+  const removeSource = async (id) => {
+    try {
+      setSources(prev => prev.filter(s => s.id !== id));
+      // Best-effort delete on backend (ok if it fails)
+      await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
+    } catch (e) {
+      // no-op: removing source locally is sufficient
+      console.warn('Failed to remove source on backend:', e?.message || e);
+    }
+  };
+
   // Internal helper to call backend summarize
   const _summarizeText = async (text, style = '') => {
     const res = await axios.post('http://localhost:3001/summarize', { text, style }, { timeout: 120000 });
     return res.data.summary || '';
+  };
+
+  // Chat with local AI
+  const handleChatMessage = async (message) => {
+    setChatLoading(true);
+    try {
+      // Add user message to chat
+      const userMessage = { role: 'user', content: message, timestamp: new Date() };
+      setChatMessages(prev => [...prev, userMessage]);
+
+      // Build context from available transcripts
+      const context = [
+        transcript ? `Current transcript: ${transcript}` : '',
+        recordings.length > 0 ? `Session recordings: ${recordings.map(r => r.transcript || 'No transcript').join('; ')}` : '',
+        savedRecordings.length > 0 ? `Saved recordings: ${savedRecordings.map(r => r.transcript || 'No transcript').join('; ')}` : ''
+      ].filter(Boolean).join('\n\n');
+      
+      // Send to dedicated chat endpoint
+      const response = await axios.post('http://localhost:3001/chat', { 
+        message,
+        context,
+        docIds: sources.map(s => s.id)
+      }, { timeout: 60000 });
+      
+      const aiMessage = { role: 'assistant', content: response.data.response, timestamp: new Date() };
+      setChatMessages(prev => [...prev, aiMessage]);
+      
+      // Show AI response as feed card
+      setError(''); // Clear any previous errors
+      
+    } catch (err) {
+      console.error('Chat error:', err);
+      const errorMessage = { role: 'assistant', content: 'Sorry, I\'m having trouble connecting to the AI. Please make sure Ollama is running.', timestamp: new Date() };
+      setChatMessages(prev => [...prev, errorMessage]);
+      setError('Chat service unavailable. Please ensure Ollama is running.');
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   // Summarize current top-level transcript using backend /summarize (Ollama)
@@ -152,6 +247,14 @@ function App() {
       }
 
       setIsRecording(true);
+      setIsPaused(false);
+      setRecordTimerMs(0);
+      pausedAccumulatedRef.current = 0;
+      startTimeRef.current = Date.now();
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = setInterval(() => {
+        setRecordTimerMs(pausedAccumulatedRef.current + (Date.now() - startTimeRef.current));
+      }, 200);
       audioChunksRef.current = [];
 
       const options = { 
@@ -184,12 +287,18 @@ function App() {
         };
         setRecordings(prev => [...prev, newRecording]);
         console.log(`Recording stopped. Total size: ${audioBlob.size} bytes`);
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        setRecordTimerMs(0);
+        setIsPaused(false);
       };
 
       mediaRecorder.onerror = (event) => {
         console.error('MediaRecorder error:', event.error);
         setError('Recording error: ' + event.error.message);
         setIsRecording(false);
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        setIsPaused(false);
+        setRecordTimerMs(0);
       };
 
       // Start recording with continuous data collection
@@ -233,6 +342,35 @@ function App() {
     }
   };
 
+  // Pause recording
+  const pauseRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording || isPaused) return;
+    try {
+      mediaRecorderRef.current.pause();
+      pausedAccumulatedRef.current += Date.now() - startTimeRef.current;
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setIsPaused(true);
+    } catch (e) {
+      console.error('Pause error:', e);
+    }
+  };
+
+  // Resume recording
+  const resumeRecording = () => {
+    if (!mediaRecorderRef.current || !isRecording || !isPaused) return;
+    try {
+      mediaRecorderRef.current.resume();
+      startTimeRef.current = Date.now();
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = setInterval(() => {
+        setRecordTimerMs(pausedAccumulatedRef.current + (Date.now() - startTimeRef.current));
+      }, 200);
+      setIsPaused(false);
+    } catch (e) {
+      console.error('Resume error:', e);
+    }
+  };
+
   // Stop recording
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
@@ -243,6 +381,9 @@ function App() {
       mediaRecorderRef.current.stream.getTracks().forEach(track => {
         track.stop();
       });
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setIsPaused(false);
+      setRecordTimerMs(0);
     }
   };
 
@@ -369,190 +510,343 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
-      <Header />
-      <main className="container">
-        <div className="content-grid">
-          {/* Recording Panel */}
-          <div className="col-6">
-            <RecordPanel 
-              isRecording={isRecording}
-              recordingType={recordingType}
-              setRecordingType={setRecordingType}
-              startRecording={startRecording}
-              stopRecording={stopRecording}
-              loading={loading}
-            />
-
-            {/* Multiple Recordings Display */}
-            {recordings.length > 0 && (
-              <div style={{marginTop: '1.5rem'}}>
-                <h4 className="section-title">🎵 Recordings ({recordings.length})</h4>
-                {recordings.map((recording, index) => (
-                  <div key={recording.id} className="recorded-audio-section">
-                    <div className="recording-header">
-                      <div className="recording-meta">
-                        <div style={{
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: recording.type === 'system' ? 
-                            'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 
-                            'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)'
-                        }}></div>
-                        <h5 style={{margin: 0, fontSize: '0.9rem', fontWeight: '600'}}>
-                          {recording.type === 'system' ? '🔊' : '🎤'} Recording #{recordings.length - index}
-                        </h5>
-                        <span className="badge">{(recording.size / 1024).toFixed(1)} KB</span>
-                        <span style={{fontSize: '0.75rem', opacity: 0.6}}>{recording.timestamp.toLocaleTimeString()}</span>
-                      </div>
-                      <button 
-                        onClick={() => deleteRecording(recording.id)}
-                        className="btn btn-secondary btn-icon"
-                        style={{background: 'rgba(255, 107, 107, 0.2)', border: '1px solid rgba(255, 107, 107, 0.3)', color: '#ff6b6b'}}
-                        title="Delete recording and backend files"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                    
-                    <audio controls src={recording.url} className="audio-player" />
-                    
-                    <div className="actions-row">
-                      <button 
-                        onClick={() => transcribeRecording(recording.id)}
-                        className="btn btn-primary"
-                        disabled={loading}
-                        style={{width: '100%'}}
-                      >
-                        {recording.transcript === 'Transcribing...' ? '⏳ Transcribing...' : 
-                         recording.transcript && recording.transcript !== '' ? '✅ Transcribed' : '✨ Transcribe'}
-                      </button>
-                      {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                        <button
-                          onClick={() => summarizeRecordingTranscript(recording.id)}
-                          className="btn btn-secondary"
-                          disabled={recording.summarizing}
-                          title="Summarize this recording's transcript"
-                        >
-                          {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
-                        </button>
-                      )}
-                      {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                        <button
-                          onClick={() => copyToClipboard(recording.transcript)}
-                          className="btn btn-outline"
-                          title="Copy transcript"
-                        >
-                          📋 Copy Transcript
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => {
-                          const link = document.createElement('a');
-                          link.href = recording.url;
-                          link.download = `recording-${recording.id}.webm`;
-                          link.click();
-                        }}
-                        className="btn btn-secondary"
-                        title="Download recording"
-                      >
-                        💾
-                      </button>
-                    </div>
-
-                    {/* Show transcript if available */}
-                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
-                      <div style={{
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        borderRadius: '8px',
-                        padding: '1rem',
-                        border: '1px solid rgba(255, 255, 255, 0.05)'
-                      }}>
-                        <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>📝 Transcript:</h6>
-                        <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                          {recording.transcript}
-                        </p>
-                        {recording.summary && (
-                          <div style={{
-                            marginTop: '0.8rem',
-                            background: 'rgba(0, 0, 0, 0.2)',
-                            borderRadius: '8px',
-                            padding: '0.8rem',
-                            border: '1px solid rgba(255, 255, 255, 0.06)'
-                          }}>
-                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
-                              <h6 style={{margin: 0, fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
-                              <button
-                                onClick={() => copyToClipboard(recording.summary)}
-                                className="btn btn-outline btn-sm"
-                                title="Copy summary"
-                              >
-                                📋 Copy Summary
-                              </button>
-                            </div>
-                            <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
-                              {recording.summary}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Upload Panel */}
-          <div className="col-6">
-            <UploadPanel 
-              file={file}
-              onFileChange={handleFileChange}
-              onTranscribe={transcribeFile}
-              loading={loading}
-            />
-          </div>
-
-          {/* Saved Recordings from System */}
-          <div className="col-12">
-            <SavedRecordings 
-              savedRecordings={savedRecordings}
-              deleteSavedRecording={deleteSavedRecording}
-              fetchSavedRecordings={fetchSavedRecordings}
-              summarizeSavedRecording={summarizeSavedRecording}
-            />
-          </div>
-        </div>
-
-      {/* Error Message */}
-      {error && (
-        <div className="card" style={{background: 'rgba(255, 107, 107, 0.1)', border: '1px solid rgba(255, 107, 107, 0.3)'}}>
-          <div className="card-header">
-            <div className="card-icon" style={{background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)'}}>⚠️</div>
-            <div>
-              <h3 className="card-title" style={{color: '#ff6b6b'}}>Error</h3>
+    <div className="otter-shell">
+      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+      <Topbar 
+        onImportClick={() => setShowImportModal(true)}
+        onRecordClick={() => setShowRecordModal(true)}
+      />
+      <main className="otter-main">
+        <div className="feed-container">
+          {/* Error Message */}
+          {error && (
+            <div className="feed-card" style={{borderColor: '#fecaca', background: '#fff1f2', color: '#b91c1c', marginBottom: '16px'}}>
+              <strong>⚠️ Error:</strong> {error}
             </div>
-          </div>
-          <p style={{color: '#ff6b6b', margin: 0}}>{error}</p>
-        </div>
-      )}
-      
-      {/* Transcript Results */}
-      <TranscriptCard 
-        transcript={transcript}
-        onCopy={() => copyToClipboard(transcript)}
-        onSummarize={() => summarizeTranscript()}
-        summarizing={summarizing}
-      />
+          )}
 
-      {/* Summary Results */}
-      <SummaryCard 
-        summary={summary}
-        onCopy={() => copyToClipboard(summary)}
-      />
+          {currentView === 'transcripts' && (
+            <>
+              {/* In-session recordings as feed cards */}
+              {recordings.map((recording, index) => (
+                <>
+                  <FeedCard
+                    key={recording.id}
+                    avatar={recording.type === 'system' ? '🔊' : '🎤'}
+                    title={`Recording #${recordings.length - index}`}
+                    subtitle={recording.timestamp.toLocaleTimeString()}
+                    fullText={recording.transcript && recording.transcript !== 'Transcribing...' ? recording.transcript : undefined}
+                    snippet={(!recording.transcript || recording.transcript === 'Transcribing...')
+                      ? (recording.transcript === 'Transcribing...' ? 'Transcribing audio...' : 'Click to transcribe')
+                      : undefined}
+                    metadata={[
+                      `${(recording.size / 1024).toFixed(1)} KB`,
+                      recording.type === 'system' ? 'System Audio' : 'Microphone'
+                    ]}
+                    thumbnail={
+                      <audio controls src={recording.url} style={{width: '100%', height: '32px'}} />
+                    }
+                    actions={
+                      <>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); transcribeRecording(recording.id); }}
+                          className="btn btn-primary btn-sm"
+                          disabled={loading}
+                        >
+                          {recording.transcript === 'Transcribing...' ? '⏳' : 
+                           recording.transcript && recording.transcript !== '' ? '✅' : '✨'}
+                        </button>
+                        {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); summarizeRecordingTranscript(recording.id); }}
+                              className="btn btn-secondary btn-sm"
+                              disabled={recording.summarizing}
+                              title="Generic summary"
+                            >
+                              {recording.summarizing ? '⏳' : '🧠'}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); summarizeRecordingTranscript(recording.id, STUDY_NOTES_STYLE); }}
+                              className="btn btn-secondary btn-sm"
+                              disabled={recording.summarizing}
+                              title="Study Notes"
+                            >
+                              {recording.summarizing ? '⏳' : '📘'}
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteRecording(recording.id); }}
+                          className="btn btn-secondary btn-sm"
+                          style={{color: '#b91c1c'}}
+                        >
+                          🗑️
+                        </button>
+                      </>
+                    }
+                  />
+                  {recording.summary && (
+                    <FeedCard
+                      avatar="🧠"
+                      title={`Summary for Recording #${recordings.length - index}`}
+                      subtitle="Concise notes"
+                      fullText={recording.summary}
+                      actions={
+                        <button 
+                          onClick={() => copyToClipboard(recording.summary)}
+                          className="btn btn-outline btn-sm"
+                        >
+                          📋 Copy
+                        </button>
+                      }
+                    />
+                  )}
+                </>
+              ))}
+
+              {/* Saved Recordings as feed cards */}
+              {savedRecordings.map((recording) => (
+                <>
+                  <FeedCard
+                    key={recording.filename}
+                    avatar="📁"
+                    title={`Learn how to use Otter`}
+                    subtitle={`${Math.floor(Math.random() * 24)}h ${Math.floor(Math.random() * 60)}m • ${Math.floor(Math.random() * 60)} minutes • General`}
+                    fullText={recording.transcript || undefined}
+                    snippet={!recording.transcript ? 'No transcript available for this recording' : undefined}
+                    metadata={[
+                      `${(recording.size / 1024).toFixed(1)} KB`,
+                      new Date(recording.created).toLocaleDateString()
+                    ]}
+                    thumbnail={
+                      <div style={{background: '#e0e7ff', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#3730a3'}}>
+                        📄 {Math.floor(Math.random() * 10)}
+                      </div>
+                    }
+                    actions={
+                      <>
+                        {recording.hasTranscript && recording.transcript && (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); summarizeSavedRecording(recording.filename); }}
+                              className="btn btn-secondary btn-sm"
+                              disabled={recording.summarizing}
+                              title="Generic summary"
+                            >
+                              {recording.summarizing ? '⏳' : '🧠'}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); summarizeSavedRecording(recording.filename, STUDY_NOTES_STYLE); }}
+                              className="btn btn-secondary btn-sm"
+                              disabled={recording.summarizing}
+                              title="Study Notes"
+                            >
+                              {recording.summarizing ? '⏳' : '📘'}
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteSavedRecording(recording.filename); }}
+                          className="btn btn-secondary btn-sm"
+                          style={{color: '#b91c1c'}}
+                        >
+                          🗑️
+                        </button>
+                      </>
+                    }
+                  />
+                  {recording.summary && (
+                    <FeedCard
+                      avatar="🧠"
+                      title={`Summary for ${recording.filename}`}
+                      subtitle="Concise notes"
+                      fullText={recording.summary}
+                      actions={
+                        <button 
+                          onClick={() => copyToClipboard(recording.summary)}
+                          className="btn btn-outline btn-sm"
+                        >
+                          📋 Copy
+                        </button>
+                      }
+                    />
+                  )}
+                </>
+              ))}
+
+              {/* Show transcript as feed card if available */}
+              {transcript && transcript !== 'Transcribing...' && (
+                <FeedCard
+                  avatar="📝"
+                  title="Transcript Results"
+                  subtitle="AI-generated transcription"
+                  fullText={transcript}
+                  actions={
+                    <>
+                      <button 
+                        onClick={() => copyToClipboard(transcript)}
+                        className="btn btn-outline btn-sm"
+                      >
+                        📋 Copy
+                      </button>
+                      <button
+                        onClick={() => summarizeTranscript()}
+                        className="btn btn-primary btn-sm"
+                        disabled={summarizing}
+                        title="Generic summary"
+                      >
+                        {summarizing ? '⏳' : '🧠'} Summarize
+                      </button>
+                      <button
+                        onClick={() => summarizeTranscript(STUDY_NOTES_STYLE)}
+                        className="btn btn-secondary btn-sm"
+                        disabled={summarizing}
+                        title="Study Notes"
+                      >
+                        {summarizing ? '⏳' : '📘'} Study Notes
+                      </button>
+                    </>
+                  }
+                />
+              )}
+
+              {/* Show summary as feed card if available */}
+              {summary && (
+                <FeedCard
+                  avatar="🧠"
+                  title="Summary Results"
+                  subtitle="Concise study notes"
+                  fullText={summary}
+                  actions={
+                    <button 
+                      onClick={() => copyToClipboard(summary)}
+                      className="btn btn-outline btn-sm"
+                    >
+                      📋 Copy
+                    </button>
+                  }
+                />
+              )}
+            </>
+          )}
+
+          {currentView === 'chat' && (
+            <>
+              {/* Show chat messages as feed cards */}
+              {chatMessages.map((msg, index) => (
+                <FeedCard
+                  key={index}
+                  avatar={msg.role === 'user' ? '👤' : '🤖'}
+                  title={msg.role === 'user' ? 'You' : 'Otter AI'}
+                  subtitle={msg.timestamp.toLocaleTimeString()}
+                  fullText={msg.content}
+                  actions={
+                    <button 
+                      onClick={() => copyToClipboard(msg.content)}
+                      className="btn btn-outline btn-sm"
+                    >
+                      📋 Copy
+                    </button>
+                  }
+                />
+              ))}
+
+              {/* Shimmer loader while waiting for AI response */}
+              {chatLoading && (
+                <div className="feed-card-item" aria-busy="true" aria-live="polite">
+                  <div className="feed-card-avatar skeleton skeleton-avatar" />
+                  <div className="feed-card-content">
+                    <div className="feed-card-header">
+                      <div className="feed-card-title-section">
+                        <div className="skeleton skeleton-title" />
+                        <div className="skeleton skeleton-subtitle" />
+                      </div>
+                      <div className="feed-card-metadata">
+                        <span className="skeleton skeleton-meta" />
+                        <span className="skeleton skeleton-meta" />
+                      </div>
+                    </div>
+                    <div className="skeleton skeleton-line" />
+                    <div className="skeleton skeleton-line sm" />
+                    <div className="feed-card-actions">
+                      <div className="skeleton skeleton-btn" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </main>
-      <Footer />
+
+      {/* Bottom chat input - only in Chat view */}
+      {currentView === 'chat' && (
+        <ChatInput 
+          onGetStarted={() => setShowRecordModal(true)} 
+          onSendMessage={handleChatMessage}
+          isLoading={chatLoading}
+          onAttachFile={attachFileToChat}
+          onOpenPasteModal={() => setShowPasteModal(true)}
+          sources={sources}
+          onRemoveSource={removeSource}
+        />
+      )}
+
+      {/* Import Modal */}
+      <Modal open={showImportModal} title="Import audio" onClose={() => setShowImportModal(false)} width={720}>
+        <UploadPanel 
+          file={file}
+          onFileChange={handleFileChange}
+          onTranscribe={async () => { await transcribeFile(); setShowImportModal(false); }}
+          loading={loading}
+        />
+      </Modal>
+
+      {/* Paste Text as Source Modal */}
+      <Modal open={showPasteModal} title="Add text source" onClose={() => { setShowPasteModal(false); setPasteModalText(''); }} width={720}>
+        <div style={{display: 'grid', gap: '12px'}}>
+          <textarea
+            rows={8}
+            placeholder="Paste text to chat over..."
+            value={pasteModalText}
+            onChange={(e) => setPasteModalText(e.target.value)}
+            style={{width: '100%'}}
+          />
+          <div style={{display: 'flex', gap: '8px', justifyContent: 'flex-end'}}>
+            <button
+              className="btn btn-primary"
+              disabled={!pasteModalText.trim()}
+              onClick={async () => {
+                const text = pasteModalText.trim();
+                if (!text) return;
+                await pasteTextToChat(text);
+                setPasteModalText('');
+                setShowPasteModal(false);
+              }}
+            >
+              Add as Source
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setShowPasteModal(false); setPasteModalText(''); }}>Cancel</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Record Modal */}
+      <Modal open={showRecordModal} title="Record" onClose={() => setShowRecordModal(false)} width={720}>
+        <RecordPanel 
+          isRecording={isRecording}
+          isPaused={isPaused}
+          recordingType={recordingType}
+          setRecordingType={setRecordingType}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          pauseRecording={pauseRecording}
+          resumeRecording={resumeRecording}
+          recordTimerMs={recordTimerMs}
+          loading={loading}
+        />
+      </Modal>
     </div>
   );
 }

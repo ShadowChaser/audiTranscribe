@@ -6,6 +6,9 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const socketIo = require("socket.io");
+const pdfParse = require("pdf-parse");
+const mammoth = require("mammoth");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +29,75 @@ app.use(cors({
 
 app.use(express.json());
 
+// Chat endpoint using local Ollama
+// In-memory store for ingested documents (PDF/DOCX/TXT/text)
+// Structure: id -> { id, name, type, size, text, created }
+const ingestedDocs = new Map();
+
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, context, docIds } = req.body || {};
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Missing message' });
+    }
+
+    // Build doc context from selected ingested docs
+    let docsContext = '';
+    if (Array.isArray(docIds) && docIds.length > 0) {
+      const parts = [];
+      for (const id of docIds) {
+        const doc = ingestedDocs.get(id);
+        if (doc && doc.text) {
+          parts.push(`---\nTitle: ${doc.name} (${doc.type})\n---\n${doc.text}`);
+        }
+      }
+      docsContext = parts.join("\n\n");
+    }
+
+    const systemPrompt = `You are Otter AI, a helpful assistant for audio transcription, meeting notes, and document Q&A. You help users understand and work with their recordings and uploaded documents.
+
+Available context:
+${context || 'No transcripts available yet.'}
+
+Selected documents:\n${docsContext || '(none)'}
+
+Respond conversationally and helpfully. If the user asks about transcripts or recordings, reference the context provided.`;
+
+    const payload = {
+      model: 'llama3',
+      prompt: `${systemPrompt}\n\nUser: ${message}\n\nAssistant:`,
+      stream: false,
+      options: {
+        temperature: 0.7,
+        max_tokens: 500
+      }
+    };
+
+    const ollamaUrl = 'http://localhost:11434/api/generate';
+    const doFetch = (typeof fetch !== 'undefined') ? fetch : null;
+    if (!doFetch) {
+      return res.status(500).json({ error: 'fetch is not available in this Node runtime. Please use Node 18+ or install node-fetch.' });
+    }
+
+    const response = await doFetch(ollamaUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      return res.status(502).json({ error: 'Ollama request failed', status: response.status, details: errText });
+    }
+
+    const data = await response.json();
+    return res.json({ response: data.response || '' });
+  } catch (e) {
+    console.error('Chat error:', e);
+    return res.status(503).json({ error: 'Chat service unavailable. Is Ollama running on port 11434?', details: e.message });
+  }
+});
+
 // Summarization endpoint using local Ollama
 app.post('/summarize', async (req, res) => {
   try {
@@ -34,10 +106,63 @@ app.post('/summarize', async (req, res) => {
       return res.status(400).json({ error: 'Missing text to summarize' });
     }
 
-    const promptPrefix = style && typeof style === 'string' && style.trim().length > 0
-      ? `Summarize the following text into ${style}:
-\n${text}`
-      : `Summarize the following text into concise bullet-point study notes. Focus on key ideas, definitions, steps, and examples where relevant. Keep it clear and compact.\n\n${text}`;
+    // Debug: log inputs
+    try {
+      console.log('[SUMMARIZE] style:', style || '(none)');
+      console.log('[SUMMARIZE] text length:', text.length);
+    } catch {}
+
+    const promptPrefix = (style && typeof style === 'string' && style.trim().length > 0)
+      ? `You are a world-class note-taker. Produce a polished, easy-to-skim MARKDOWN summary in the requested style: ${style}. 
+Use proper Markdown headers, bold key terms, and bullet lists. Include actionable takeaways.
+
+Format exactly as:
+
+# Summary
+
+## Key Points
+- ...
+
+## Action Items
+- [ ] ...
+
+## Important Details
+- ...
+
+## Glossary (if applicable)
+- **Term**: definition
+
+Summarize the following text:
+"""
+${text}
+"""`
+      : `You are a world-class note-taker. Produce a polished MARKDOWN study summary that is concise and structured.
+Use clear section headers, bullet points, and bold emphasis for critical phrases. Prefer lists over paragraphs.
+
+Format exactly as:
+
+# Summary
+
+## Key Points
+- ...
+
+## Action Items
+- [ ] ...
+
+## Important Details
+- ...
+
+## Glossary (if applicable)
+- **Term**: definition
+
+Summarize the following text:
+"""
+${text}
+"""`;
+
+    try {
+      console.log('[SUMMARIZE] prompt length:', promptPrefix.length);
+    } catch {}
 
     const payload = {
       model: 'llama3',
@@ -68,6 +193,9 @@ app.post('/summarize', async (req, res) => {
     }
 
     const data = await response.json();
+    try {
+      console.log('[SUMMARIZE] model response length:', (data.response || '').length);
+    } catch {}
     return res.json({ summary: data.response || '' });
   } catch (e) {
     console.error('Summarization error:', e);
@@ -199,6 +327,91 @@ app.get("/transcript/:filename", (req, res) => {
     }
     res.json({ content: data });
   });
+});
+
+// ---------------------- Ingestion Endpoints (PDF/DOCX/TXT/Text) ----------------------
+// Separate multer storage for ingestion uploads (memory)
+const ingestUpload = multer({ storage: multer.memoryStorage() });
+
+// Helper: parse buffer by mimetype or filename
+async function parseFileBufferToText(file) {
+  const { buffer, mimetype, originalname } = file;
+  const nameLower = (originalname || '').toLowerCase();
+  if (mimetype === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    const data = await pdfParse(buffer);
+    return data.text || '';
+  }
+  if (
+    mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    nameLower.endsWith('.docx')
+  ) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  }
+  // Fallback: treat as text
+  return buffer.toString('utf8');
+}
+
+// POST /ingest/file - accepts single file upload of PDF/DOCX/TXT
+app.post('/ingest/file', ingestUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const text = await parseFileBufferToText(req.file);
+    const id = uuidv4();
+    const doc = {
+      id,
+      name: req.file.originalname,
+      type: req.file.mimetype || path.extname(req.file.originalname).slice(1) || 'text/plain',
+      size: req.file.size || (req.file.buffer ? req.file.buffer.length : 0),
+      text,
+      created: new Date().toISOString(),
+    };
+    ingestedDocs.set(id, doc);
+    return res.json({ id, doc });
+  } catch (e) {
+    console.error('Ingest file error:', e);
+    return res.status(500).json({ error: 'Failed to ingest file', details: e.message });
+  }
+});
+
+// POST /ingest/text - accepts raw text to ingest as a document
+app.post('/ingest/text', async (req, res) => {
+  try {
+    const { text, name } = req.body || {};
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Missing text' });
+    }
+    const id = uuidv4();
+    const doc = {
+      id,
+      name: name || 'Pasted Text',
+      type: 'text/plain',
+      size: Buffer.byteLength(text, 'utf8'),
+      text,
+      created: new Date().toISOString(),
+    };
+    ingestedDocs.set(id, doc);
+    return res.json({ id, doc });
+  } catch (e) {
+    console.error('Ingest text error:', e);
+    return res.status(500).json({ error: 'Failed to ingest text', details: e.message });
+  }
+});
+
+// GET /ingest/list - list all ingested docs
+app.get('/ingest/list', (req, res) => {
+  const list = Array.from(ingestedDocs.values()).map(({ text, ...meta }) => meta);
+  res.json({ docs: list });
+});
+
+// DELETE /ingest/:id - remove ingested doc
+app.delete('/ingest/:id', (req, res) => {
+  const { id } = req.params;
+  if (!ingestedDocs.has(id)) return res.status(404).json({ error: 'Not found' });
+  ingestedDocs.delete(id);
+  res.json({ success: true });
 });
 
 // WebSocket connection for live transcription

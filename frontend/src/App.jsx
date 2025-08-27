@@ -14,6 +14,8 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  // Session recordings are kept in-memory only (no localStorage to avoid large payloads)
+
   // Fetch saved recordings on component mount
   useEffect(() => {
     fetchSavedRecordings();
@@ -150,50 +152,7 @@ function App() {
     }
   };
 
-  // Convert audio chunks to WAV format
-  const _createWAVFile = (audioChunks, sampleRate) => {
-    const audioData = new Uint8Array(audioChunks.reduce((acc, chunk) => acc + chunk.byteLength, 0));
-    let offset = 0;
-    for (let i = 0; i < audioChunks.length; i++) {
-      const chunk = audioChunks[i];
-      audioData.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
-    }
-
-    const length = audioData.length;
-    const buffer = new ArrayBuffer(44 + length * 2);
-    const view = new DataView(buffer);
-    
-    // WAV header
-    const writeString = (offset, string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-      }
-    };
-    
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + length * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, length * 2, true);
-    
-    // Audio data
-    let dataOffset = 44;
-    for (let i = 0; i < length; i++) {
-      view.setInt16(dataOffset, audioData[i], true);
-      dataOffset += 2;
-    }
-    
-    return buffer;
-  };
+  // (Unused _createWAVFile helper removed earlier to reduce lint warnings)
 
   // Copy transcript to clipboard
   const copyToClipboard = async (text) => {

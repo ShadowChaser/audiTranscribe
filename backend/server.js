@@ -26,6 +26,58 @@ app.use(cors({
 
 app.use(express.json());
 
+// Summarization endpoint using local Ollama
+app.post('/summarize', async (req, res) => {
+  try {
+    const { text, style } = req.body || {};
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Missing text to summarize' });
+    }
+
+    const promptPrefix = style && typeof style === 'string' && style.trim().length > 0
+      ? `Summarize the following text into ${style}:
+\n${text}`
+      : `Summarize the following text into concise bullet-point study notes. Focus on key ideas, definitions, steps, and examples where relevant. Keep it clear and compact.\n\n${text}`;
+
+    const payload = {
+      model: 'llama3',
+      prompt: promptPrefix,
+      stream: false,
+      options: {
+        temperature: 0.2
+      }
+    };
+
+    const ollamaUrl = 'http://localhost:11434/api/generate';
+
+    // Prefer global fetch (Node 18+)
+    const doFetch = (typeof fetch !== 'undefined') ? fetch : null;
+    if (!doFetch) {
+      return res.status(500).json({ error: 'fetch is not available in this Node runtime. Please use Node 18+ or install node-fetch.' });
+    }
+
+    const response = await doFetch(ollamaUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      return res.status(502).json({ error: 'Ollama request failed', status: response.status, details: errText });
+    }
+
+    const data = await response.json();
+    return res.json({ summary: data.response || '' });
+  } catch (e) {
+    console.error('Summarization error:', e);
+    // Common case: Ollama not running on 11434
+    return res.status(503).json({ error: 'Summarization service unavailable. Is Ollama running on port 11434?', details: e.message });
+  }
+});
+
+// (moved CORS and express.json above)
+
 // Storage setup
 const upload = multer({ dest: "uploads/" });
 

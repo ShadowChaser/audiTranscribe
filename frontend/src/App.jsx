@@ -5,6 +5,8 @@ import './App.css';
 function App() {
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState('');
+  const [summary, setSummary] = useState('');
+  const [summarizing, setSummarizing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -27,6 +29,62 @@ function App() {
       setSavedRecordings(response.data.recordings);
     } catch (err) {
       console.error('Failed to fetch saved recordings:', err);
+    }
+  };
+
+  // Internal helper to call backend summarize
+  const _summarizeText = async (text, style = '') => {
+    const res = await axios.post('http://localhost:3001/summarize', { text, style }, { timeout: 120000 });
+    return res.data.summary || '';
+  };
+
+  // Summarize current top-level transcript using backend /summarize (Ollama)
+  const summarizeTranscript = async (style = '') => {
+    if (!transcript || transcript.trim() === '') {
+      setError('No transcript to summarize');
+      return;
+    }
+    try {
+      setSummarizing(true);
+      setError('');
+      const s = await _summarizeText(transcript, style);
+      setSummary(s);
+    } catch (err) {
+      console.error('Summarization error:', err);
+      setError(err.response?.data?.error || 'Failed to summarize. Ensure Ollama is running (port 11434) and model is available.');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  // Summarize a specific in-session recording's transcript
+  const summarizeRecordingTranscript = async (recordingId, style = '') => {
+    const rec = recordings.find(r => r.id === recordingId);
+    if (!rec || !rec.transcript || rec.transcript === 'Transcribing...') return;
+    try {
+      // mark summarizing state on this recording
+      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: true } : r));
+      const s = await _summarizeText(rec.transcript, style);
+      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summary: s, summarizing: false } : r));
+    } catch (err) {
+      console.error('Summarization error:', err);
+      setError(err.response?.data?.error || 'Failed to summarize recording.');
+      setRecordings(prev => prev.map(r => r.id === recordingId ? { ...r, summarizing: false } : r));
+    }
+  };
+
+  // Summarize a saved recording's transcript
+  const summarizeSavedRecording = async (filename, style = '') => {
+    const item = savedRecordings.find(r => r.filename === filename);
+    if (!item || !item.hasTranscript || !item.transcript) return;
+    try {
+      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: true } : r));
+      const s = await _summarizeText(item.transcript, style);
+      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summary: s, summarizing: false } : r));
+    } catch (err) {
+      console.error('Summarization error:', err);
+      setError(err.response?.data?.error || 'Failed to summarize saved recording.');
+      setSavedRecordings(prev => prev.map(r => r.filename === filename ? { ...r, summarizing: false } : r));
     }
   };
 
@@ -294,6 +352,7 @@ function App() {
       });
       
       setTranscript(transcriptRes.data.content);
+      setSummary(''); // clear previous summary
     } catch (err) {
       console.error("Upload error:", err);
       setError(err.response?.data?.error || "Failed to transcribe audio. Make sure the backend is running.");
@@ -468,6 +527,25 @@ function App() {
                       {recording.transcript === 'Transcribing...' ? '⏳ Transcribing...' : 
                        recording.transcript && recording.transcript !== '' ? '✅ Transcribed' : '✨ Transcribe'}
                     </button>
+                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                      <button
+                        onClick={() => summarizeRecordingTranscript(recording.id)}
+                        className="btn btn-secondary"
+                        disabled={recording.summarizing}
+                        title="Summarize this recording's transcript"
+                      >
+                        {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
+                      </button>
+                    )}
+                    {recording.transcript && recording.transcript !== '' && recording.transcript !== 'Transcribing...' && (
+                      <button
+                        onClick={() => copyToClipboard(recording.transcript)}
+                        className="btn btn-outline"
+                        title="Copy transcript"
+                      >
+                        📋 Copy Transcript
+                      </button>
+                    )}
                     <button 
                       onClick={() => {
                         const link = document.createElement('a');
@@ -494,6 +572,29 @@ function App() {
                       <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
                         {recording.transcript}
                       </p>
+                      {recording.summary && (
+                        <div style={{
+                          marginTop: '0.8rem',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          borderRadius: '8px',
+                          padding: '0.8rem',
+                          border: '1px solid rgba(255, 255, 255, 0.06)'
+                        }}>
+                          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
+                            <h6 style={{margin: 0, fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
+                            <button
+                              onClick={() => copyToClipboard(recording.summary)}
+                              className="btn btn-outline btn-sm"
+                              title="Copy summary"
+                            >
+                              📋 Copy Summary
+                            </button>
+                          </div>
+                          <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                            {recording.summary}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -646,6 +747,16 @@ function App() {
                     >
                       💾 Download
                     </button>
+                    {recording.hasTranscript && recording.transcript && (
+                      <button
+                        onClick={() => summarizeSavedRecording(recording.filename)}
+                        className="btn btn-secondary"
+                        disabled={recording.summarizing}
+                        title="Summarize this saved recording's transcript"
+                      >
+                        {recording.summarizing ? '⏳ Summarizing' : '🧠 Summarize'}
+                      </button>
+                    )}
                     <button 
                       onClick={() => fetchSavedRecordings()}
                       className="btn btn-secondary"
@@ -667,6 +778,20 @@ function App() {
                       <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
                         {recording.transcript}
                       </p>
+                      {recording.summary && (
+                        <div style={{
+                          marginTop: '0.8rem',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          borderRadius: '8px',
+                          padding: '0.8rem',
+                          border: '1px solid rgba(255, 255, 255, 0.06)'
+                        }}>
+                          <h6 style={{margin: '0 0 0.5rem 0', fontSize: '0.8rem', opacity: 0.8}}>🧠 Summary:</h6>
+                          <p style={{margin: 0, fontSize: '0.9rem', lineHeight: '1.4', whiteSpace: 'pre-wrap'}}>
+                            {recording.summary}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -719,6 +844,15 @@ function App() {
             >
               📋 Copy
             </button>
+            <button
+              onClick={() => summarizeTranscript()}
+              className="btn btn-primary btn-sm"
+              style={{marginLeft: '0.5rem'}}
+              disabled={summarizing}
+              title="Summarize transcript into study notes"
+            >
+              {summarizing ? '⏳ Summarizing...' : '🧠 Summarize'}
+            </button>
           </div>
           <div style={{
             background: 'rgba(0, 0, 0, 0.3)',
@@ -739,6 +873,44 @@ function App() {
               lineHeight: '1.6'
             }}>
               {transcript}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Results */}
+      {summary && (
+        <div className="card">
+          <div className="card-header">
+            <div className="card-icon">🧠</div>
+            <div style={{flex: 1}}>
+              <h3 className="card-title">Summary</h3>
+              <p className="card-description">Concise study notes generated locally via Ollama</p>
+            </div>
+            <button 
+              onClick={() => copyToClipboard(summary)}
+              className="btn btn-secondary btn-sm"
+              style={{marginLeft: 'auto'}}
+            >
+              📋 Copy
+            </button>
+          </div>
+          <div style={{
+            background: 'rgba(0, 0, 0, 0.3)',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <pre style={{
+              color: '#ffffff',
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word',
+              fontFamily: 'inherit',
+              fontSize: '1rem',
+              lineHeight: '1.6'
+            }}>
+              {summary}
             </pre>
           </div>
         </div>

@@ -1,0 +1,20 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+backend/node_modules/
+
+# Env and logs
+.env
+*.env
+*.log
+
+# Generated artifacts
+backend/uploads/
+backend/transcripts/
+
+# Frontend build
+frontend/dist/

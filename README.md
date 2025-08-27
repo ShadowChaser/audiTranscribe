@@ -23,6 +23,22 @@ A local web application that transcribes audio files using OpenAI's Whisper mode
 - **Python 3.8+**
 - **pip** (Python package manager)
 
+## 📦 Version Control & Environments
+
+- Do not commit local environments or bulky artifacts.
+- This repo includes a root `.gitignore` that excludes:
+  - `venv/`, `__pycache__/`, `*.pyc`
+  - `frontend/node_modules/`, `backend/node_modules/`
+  - `backend/uploads/`, `backend/transcripts/`
+  - `.env`, `*.env`, logs, and `frontend/dist/`
+
+Setup Python env locally:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt  # or pip install faster-whisper
+```
+
 ## 🚀 Setup Instructions
 
 ### 1. Clone and Navigate
@@ -61,6 +77,7 @@ cd backend
 node server.js
 ```
 The backend will run on `http://localhost:5000`
+The backend will run on `http://localhost:3001`
 
 ### Start Frontend Development Server
 ```bash
@@ -163,3 +180,10 @@ cd frontend && npm run dev
 
 # Already done - virtual environment is set up
 source venv/bin/activate  # If you need to activate it manually# audiTranscribe
+
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
+
+cd backend && npm install
+cd ../frontend && npm install

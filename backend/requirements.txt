@@ -1,0 +1,7 @@
+faster-whisper
+ctranslate2
+onnxruntime
+numpy
+tqdm
+requests
+pyyaml

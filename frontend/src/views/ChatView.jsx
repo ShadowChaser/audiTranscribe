@@ -1,4 +1,5 @@
 import FeedCard from "../components/FeedCard";
+import { toast } from "react-toastify";
 
 const ChatView = ({ chat }) => {
   return (

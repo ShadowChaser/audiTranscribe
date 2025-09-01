@@ -29,7 +29,7 @@ function App() {
   const [pasteModalText, setPasteModalText] = useState("");
 
   // Custom hooks
-  const recording = useRecording();
+  const recording = useRecording({ enableAutoSave: true });
   const transcript = useTranscript();
   const summary = useSummary();
   const chat = useChat();

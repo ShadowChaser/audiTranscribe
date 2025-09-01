@@ -5,12 +5,13 @@ import jsPDF from "jspdf";
 import FeedCard from "../components/FeedCard";
 
 const TranscriptView = ({ recording, transcript, summary }) => {
-  const [currentRecordings, setCurrentRecordings] = useState([]);
   const [savedRecordings, setSavedRecordings] = useState([]);
   const [editingTitles, setEditingTitles] = useState({});
   const [customTitles, setCustomTitles] = useState({});
 
   useEffect(() => {
+    // Only fetch saved recordings once when component mounts (page first loads)
+    console.log('🔄 Fetching saved recordings on page load...');
     fetchSavedRecordings();
   }, []);
 
@@ -162,37 +163,78 @@ const TranscriptView = ({ recording, transcript, summary }) => {
     }
   };
 
-  const clearAllTranscripts = () => {
-    currentRecordings.forEach((recording) => {
-      if (recording.url) {
-        URL.revokeObjectURL(recording.url);
+  const clearAllRecordings = async () => {
+    if (!window.confirm('Are you sure you want to delete all recordings? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      // First, get all recording IDs
+      const response = await axios.get('http://localhost:3001/recordings');
+      const recordingIds = response.data.recordings.map(rec => rec._id);
+      
+      if (recordingIds.length === 0) {
+        toast.info('No recordings found to delete');
+        return;
       }
-    });
-    setCurrentRecordings([]);
-    toast.success("All transcripts cleared!");
+      
+      // Delete all recordings
+      const deleteResponse = await axios.post('http://localhost:3001/recordings/bulk-delete', {
+        identifiers: recordingIds
+      });
+      
+      if (deleteResponse.data.success) {
+        // Refresh the saved recordings list
+        await fetchSavedRecordings();
+        toast.success(`Successfully deleted ${deleteResponse.data.results.deleted.length} recordings`);
+      } else {
+        throw new Error(deleteResponse.data.message || 'Failed to delete recordings');
+      }
+    } catch (error) {
+      console.error('Error deleting recordings:', error);
+      toast.error(error.response?.data?.error || 'Failed to delete recordings');
+    }
   };
 
-  const clearAllSummaries = () => {
-    setCurrentRecordings((prev) => prev.map((r) => ({ ...r, summary: "" })));
-    setSavedRecordings((prev) => prev.map((r) => ({ ...r, summary: "" })));
-    toast.success("All summaries cleared!");
+  const clearAllSummaries = async () => {
+    try {
+      // Use bulk clear endpoint for summaries
+      const response = await axios.delete('http://localhost:3001/recordings/bulk-clear-summaries');
+      
+      if (response.data.success) {
+        // Update local state to reflect cleared summaries
+        setSavedRecordings((prev) => prev.map((r) => ({ ...r, summary: "" })));
+        toast.success(`All summaries cleared! ${response.data.results.cleared.length} summaries removed.`);
+      } else {
+        throw new Error(response.data.message || 'Unknown error');
+      }
+    } catch (error) {
+      console.error('Error clearing summaries:', error);
+      toast.error(error.response?.data?.error || "Failed to clear all summaries");
+    }
   };
 
   // Set up recording completion handler on mount and cleanup
   useEffect(() => {
-    const handleNewRecording = async (newRecording) => {
+    const handleNewOrUpdatedRecording = async (newRecording) => {
       if (newRecording) {
-        console.log("New recording received:", newRecording); // Debug log
-        setCurrentRecordings((prev) => {
-          console.log("Previous recordings:", prev); // Debug log
-          return [...prev, newRecording];
-        });
+        console.log("Recording completed:", newRecording); // Debug log
+        
+        // Show auto-save status messages and refresh saved recordings
+        if (newRecording.autoSaveStatus === 'saved') {
+          toast.success(`✅ Recording auto-saved to database!`);
+          // Refresh saved recordings list when a new recording is successfully saved
+          console.log('🔄 New recording saved, refreshing saved recordings list...');
+          fetchSavedRecordings();
+        } else if (newRecording.autoSaveStatus === 'failed') {
+          toast.warn(`⚠️ Auto-save failed: ${newRecording.saveError || 'Unknown error'}`);
+        }
       }
     };
 
     if (recording && recording.onRecordingComplete) {
       console.log("Setting up recording completion handler"); // Debug log
-      recording.onRecordingComplete(handleNewRecording);
+      recording.onRecordingComplete(handleNewOrUpdatedRecording);
     }
 
     // Cleanup function
@@ -208,276 +250,20 @@ const TranscriptView = ({ recording, transcript, summary }) => {
       {/* Toolbar */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
         <button
-          className="btn btn-outline btn-sm"
-          onClick={clearAllTranscripts}
-          title="Remove all in-session recordings"
+          className="btn btn-outline btn-sm btn-error"
+          onClick={clearAllRecordings}
+          title="Permanently delete all recordings and their transcripts"
         >
-          🧹 Clear All Transcripts
+          🗑️ Delete All Recordings
         </button>
         <button
           className="btn btn-outline btn-sm"
           onClick={clearAllSummaries}
-          title="Remove all generated summaries"
+          title="Clear all summaries from saved recordings"
         >
           🧽 Clear All Summaries
         </button>
       </div>
-
-      {/* Current Session Recordings */}
-      {currentRecordings.map((rec, index) => (
-        <div key={rec.id}>
-          <FeedCard
-            avatar={
-              rec.type === "system" ? "🔊" : rec.type === "import" ? "📥" : "🎤"
-            }
-            title={`Recording #${currentRecordings.length - index}`}
-            subtitle={
-              rec.timestamp instanceof Date
-                ? rec.timestamp.toLocaleTimeString()
-                : new Date(rec.timestamp).toLocaleTimeString()
-            }
-            fullText={rec.transcript || undefined}
-            snippet={
-              !rec.transcript
-                ? "Click to transcribe"
-                : rec.transcript === "Transcribing..."
-                ? "Transcribing audio..."
-                : undefined
-            }
-            metadata={[
-              `${(rec.size / 1024).toFixed(1)} KB`,
-              rec.type === "system" ? "System Audio" : "Microphone",
-            ]}
-            thumbnail={
-              <audio
-                controls
-                src={rec.url}
-                style={{ width: "100%", height: "32px" }}
-              />
-            }
-            actions={
-              <>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    transcript.transcribeRecording(rec).then((result) => {
-                      if (result) {
-                        setCurrentRecordings((prev) =>
-                          prev.map((r) =>
-                            r.id === rec.id
-                              ? {
-                                  ...r,
-                                  transcript: result.transcript,
-                                  backendFilename: result.backendFilename,
-                                }
-                              : r
-                          )
-                        );
-                        toast.success("Recording transcribed successfully!");
-                      }
-                    });
-                  }}
-                  className="btn btn-primary btn-sm"
-                  disabled={transcript.loading}
-                  title={
-                    rec.transcript === "Transcribing..."
-                      ? "Transcribing audio..."
-                      : rec.transcript
-                      ? "Transcription complete"
-                      : "Start transcription"
-                  }
-                >
-                  {rec.transcript === "Transcribing..."
-                    ? "⏳"
-                    : rec.transcript
-                    ? "✅"
-                    : "✨"}
-                </button>
-                {rec.transcript && rec.transcript !== "Transcribing..." && (
-                  <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        summary
-                          .summarizeText(rec.transcript, false)
-                          .then((result) => {
-                            if (result) {
-                              setCurrentRecordings((prev) =>
-                                prev.map((r) =>
-                                  r.id === rec.id
-                                    ? { ...r, summary: result }
-                                    : r
-                                )
-                              );
-                              toast.success("Summary generated successfully!");
-                            }
-                          });
-                      }}
-                      className="btn btn-secondary btn-sm"
-                      disabled={summary.summarizing}
-                      title="Generate summary"
-                    >
-                      {summary.summarizing ? "⏳" : "🧠"}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        summary
-                          .summarizeText(rec.transcript, true)
-                          .then((result) => {
-                            if (result) {
-                              setCurrentRecordings((prev) =>
-                                prev.map((r) =>
-                                  r.id === rec.id
-                                    ? { ...r, summary: result }
-                                    : r
-                                )
-                              );
-                              toast.success(
-                                "Study notes generated successfully!"
-                              );
-                            }
-                          });
-                      }}
-                      className="btn btn-secondary btn-sm"
-                      disabled={summary.summarizing}
-                      title="Generate study notes"
-                    >
-                      {summary.summarizing ? "⏳" : "📘"}
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (rec.url) {
-                      URL.revokeObjectURL(rec.url);
-                    }
-                    setCurrentRecordings((prev) =>
-                      prev.filter((r) => r.id !== rec.id)
-                    );
-                    toast.success("Recording deleted!");
-                  }}
-                  className="btn btn-secondary btn-sm"
-                  style={{ color: "#b91c1c" }}
-                  title="Delete this recording"
-                >
-                  🗑️
-                </button>
-              </>
-            }
-          />
-          {rec.summary && (
-            <FeedCard
-              avatar="🧠"
-              title={
-                editingTitles[`recording_${rec.id}`] ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <input
-                      type="text"
-                      defaultValue={getSummaryTitle(rec.summary, rec.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          saveTitle(rec.id, e.target.value);
-                        } else if (e.key === "Escape") {
-                          cancelEditingTitle(rec.id);
-                        }
-                      }}
-                      onBlur={(e) => saveTitle(rec.id, e.target.value)}
-                      autoFocus
-                      style={{
-                        border: "1px solid #ccc",
-                        borderRadius: "4px",
-                        padding: "4px 8px",
-                        fontSize: "14px",
-                        minWidth: "200px",
-                      }}
-                    />
-                    <button
-                      onClick={() => cancelEditingTitle(rec.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                      title="Cancel editing"
-                    >
-                      ❌
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>{getSummaryTitle(rec.summary, rec.id)}</span>
-                    <button
-                      onClick={() => startEditingTitle(rec.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                      title="Edit title"
-                    >
-                      ✏️
-                    </button>
-                  </div>
-                )
-              }
-              subtitle="Generated summary"
-              fullText={rec.summary}
-              actions={
-                <>
-                  <button
-                    onClick={() => copyToClipboard(rec.summary)}
-                    className="btn btn-outline btn-sm"
-                    title="Copy summary to clipboard"
-                  >
-                    📋 Copy
-                  </button>
-                  <button
-                    onClick={() =>
-                      exportToPDF(
-                        rec.summary,
-                        getSummaryTitle(rec.summary, rec.id)
-                      )
-                    }
-                    className="btn btn-primary btn-sm"
-                    title="Export to PDF"
-                  >
-                    📄 PDF
-                  </button>
-                  <button
-                    onClick={() => {
-                      setCurrentRecordings((prev) =>
-                        prev.map((r) =>
-                          r.id === rec.id ? { ...r, summary: "" } : r
-                        )
-                      );
-                      toast.success("Summary cleared!");
-                    }}
-                    className="btn btn-secondary btn-sm"
-                    style={{ color: "#b91c1c" }}
-                    title="Clear this summary"
-                  >
-                    🗑️ Clear
-                  </button>
-                </>
-              }
-            />
-          )}
-        </div>
-      ))}
 
       {/* Saved Recordings */}
       {savedRecordings.map((rec) => (
@@ -512,25 +298,62 @@ const TranscriptView = ({ recording, transcript, summary }) => {
             }
             actions={
               <>
+                {!rec.hasTranscript && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Create a recording-like object for the transcript hook
+                      const recordingForTranscription = {
+                        audio: null, // We don't have the blob for saved recordings
+                        backendFilename: rec.filename,
+                        id: rec._id,
+                        filename: rec.filename
+                      };
+                      
+                      transcript.transcribeRecording(recordingForTranscription).then((result) => {
+                        if (result) {
+                          // Refresh the saved recordings to show the new transcript
+                          fetchSavedRecordings();
+                          toast.success("Recording transcribed successfully!");
+                        }
+                      });
+                    }}
+                    className="btn btn-primary btn-sm"
+                    disabled={transcript.loading}
+                    title="Start transcription"
+                  >
+                    {transcript.loading ? "⏳" : "✨"}
+                  </button>
+                )}
                 {rec.hasTranscript && rec.transcript && (
                   <>
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        summary
-                          .summarizeText(rec.transcript, false)
-                          .then((result) => {
-                            if (result) {
-                              setSavedRecordings((prev) =>
-                                prev.map((r) =>
-                                  r.filename === rec.filename
-                                    ? { ...r, summary: result }
-                                    : r
-                                )
-                              );
-                              toast.success("Summary generated!");
-                            }
-                          });
+                        const result = await summary.summarizeText(rec.transcript, false);
+                        if (result) {
+                          // Update local state
+                          setSavedRecordings((prev) =>
+                            prev.map((r) =>
+                              r.filename === rec.filename
+                                ? { ...r, summary: result }
+                                : r
+                            )
+                          );
+                          
+                          // Save to database using the recording ID
+                          try {
+                            await axios.post(`http://localhost:3001/recordings/${rec._id}/summary`, {
+                              summary: result
+                            });
+                            console.log('✅ Summary saved to database for saved recording:', rec._id);
+                          } catch (error) {
+                            console.error('❌ Failed to save summary to database:', error);
+                            toast.warn('Summary generated but failed to save to database');
+                          }
+                          
+                          toast.success("Summary generated!");
+                        }
                       }}
                       className="btn btn-secondary btn-sm"
                       disabled={summary.summarizing}
@@ -539,22 +362,32 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                       {summary.summarizing ? "⏳" : "🧠"}
                     </button>
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        summary
-                          .summarizeText(rec.transcript, true)
-                          .then((result) => {
-                            if (result) {
-                              setSavedRecordings((prev) =>
-                                prev.map((r) =>
-                                  r.filename === rec.filename
-                                    ? { ...r, summary: result }
-                                    : r
-                                )
-                              );
-                              toast.success("Study notes generated!");
-                            }
-                          });
+                        const result = await summary.summarizeText(rec.transcript, true);
+                        if (result) {
+                          // Update local state
+                          setSavedRecordings((prev) =>
+                            prev.map((r) =>
+                              r.filename === rec.filename
+                                ? { ...r, summary: result }
+                                : r
+                            )
+                          );
+                          
+                          // Save to database using the recording ID
+                          try {
+                            await axios.post(`http://localhost:3001/recordings/${rec._id}/summary`, {
+                              summary: result
+                            });
+                            console.log('✅ Study notes saved to database for saved recording:', rec._id);
+                          } catch (error) {
+                            console.error('❌ Failed to save study notes to database:', error);
+                            toast.warn('Study notes generated but failed to save to database');
+                          }
+                          
+                          toast.success("Study notes generated!");
+                        }
                       }}
                       className="btn btn-secondary btn-sm"
                       disabled={summary.summarizing}
@@ -568,13 +401,24 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                   onClick={async (e) => {
                     e.stopPropagation();
                     try {
+                      console.log('🗑️ Attempting to delete recording:', {
+                        filename: rec.filename,
+                        _id: rec._id,
+                        fullRecord: rec
+                      });
+                      
                       await axios.delete(
-                        `http://localhost:3001/recording/${rec.filename}`
+                        `http://localhost:3001/recordings/${rec.filename}`
                       );
                       fetchSavedRecordings();
                       toast.success("Recording deleted successfully!");
                     } catch (err) {
                       console.error("Failed to delete recording:", err);
+                      console.error("Error details:", {
+                        status: err.response?.status,
+                        data: err.response?.data,
+                        url: err.config?.url
+                      });
                       toast.error("Failed to delete recording");
                     }
                   }}
@@ -686,7 +530,8 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                     📄 PDF
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      // Clear from UI immediately
                       setSavedRecordings((prev) =>
                         prev.map((r) =>
                           r.filename === rec.filename
@@ -694,6 +539,16 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                             : r
                         )
                       );
+                      
+                      // Delete from database
+                      try {
+                        await axios.delete(`http://localhost:3001/recordings/${rec._id}/summary`);
+                        console.log('✅ Summary deleted from database for saved recording:', rec._id);
+                      } catch (error) {
+                        console.error('❌ Failed to delete summary from database:', error);
+                        toast.warn('Summary cleared from UI but failed to delete from database');
+                      }
+                      
                       toast.success("Summary cleared!");
                     }}
                     className="btn btn-secondary btn-sm"

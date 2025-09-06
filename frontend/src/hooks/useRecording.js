@@ -18,9 +18,9 @@ import axios from "axios";
 
 export const useRecording = (options = {}) => {
   // Configuration options
-  const { 
+  const {
     enableAutoSave = true, // Set to true by default to enable auto-save
-    autoSaveEndpoint = 'http://localhost:3001/recordings/external' 
+    autoSaveEndpoint = "http://localhost:3001/recordings/external",
   } = options;
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -40,34 +40,41 @@ export const useRecording = (options = {}) => {
   // Auto-save recording to database
   const saveRecordingToDatabase = async (audioBlob) => {
     try {
-      console.log('🔄 Auto-saving recording to database...');
       const formData = new FormData();
-      const filename = `App_Recording_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
-      formData.append('audio', audioBlob, filename);
-      
+      const filename = `App_Recording_${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.webm`;
+      formData.append("audio", audioBlob, filename);
+
       const response = await axios.post(autoSaveEndpoint, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
         timeout: 30000,
       });
-      
+
       if (response.data.success) {
-        console.log('✅ Recording auto-saved to database:', response.data.recordingId);
+        console.log(
+          "✅ Recording auto-saved to database:",
+          response.data.recordingId
+        );
         return {
           success: true,
           recordingId: response.data.recordingId,
-          serverFilename: response.data.filename
+          serverFilename: response.data.filename,
         };
       } else {
-        console.error('❌ Failed to auto-save recording:', response.data);
-        return { success: false, error: response.data.error || 'Server returned unsuccessful response' };
+        console.error("❌ Failed to auto-save recording:", response.data);
+        return {
+          success: false,
+          error: response.data.error || "Server returned unsuccessful response",
+        };
       }
     } catch (error) {
-      console.error('❌ Error auto-saving recording:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.error || error.message || 'Unknown error'
+      console.error("❌ Error auto-saving recording:", error);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || "Unknown error",
       };
     }
   };
@@ -134,7 +141,7 @@ export const useRecording = (options = {}) => {
           type: "audio/webm",
         });
         const audioUrl = URL.createObjectURL(audioBlob);
-        
+
         // Create initial recording object
         const newRecording = {
           id: Date.now(),
@@ -146,7 +153,7 @@ export const useRecording = (options = {}) => {
           transcript: "",
           backendFilename: null,
           recordingId: null,
-          autoSaveStatus: enableAutoSave ? 'saving' : null, // Only set saving status if auto-save is enabled
+          autoSaveStatus: enableAutoSave ? "saving" : null, // Only set saving status if auto-save is enabled
         };
 
         // Trigger callback immediately with initial recording
@@ -157,36 +164,40 @@ export const useRecording = (options = {}) => {
         // Conditionally auto-save in background only if enabled
         if (enableAutoSave) {
           try {
-            console.log('🔄 Auto-save is enabled, saving recording to database...');
+            console.log(
+              "🔄 Auto-save is enabled, saving recording to database..."
+            );
             const saveResult = await saveRecordingToDatabase(audioBlob, type);
-            
+
             // Update recording with save results
             const updatedRecording = {
               ...newRecording,
-              autoSaveStatus: saveResult.success ? 'saved' : 'failed',
+              autoSaveStatus: saveResult.success ? "saved" : "failed",
               recordingId: saveResult.recordingId || null,
               backendFilename: saveResult.serverFilename || null,
-              saveError: saveResult.success ? null : saveResult.error
+              saveError: saveResult.success ? null : saveResult.error,
             };
-            
+
             // Notify callback again with updated data
             if (onRecordingCompleteCallback.current) {
               onRecordingCompleteCallback.current(updatedRecording);
             }
           } catch (error) {
-            console.error('🚨 Unexpected error during auto-save:', error);
+            console.error("🚨 Unexpected error during auto-save:", error);
             const failedRecording = {
               ...newRecording,
-              autoSaveStatus: 'failed',
-              saveError: error.message || 'Unexpected error'
+              autoSaveStatus: "failed",
+              saveError: error.message || "Unexpected error",
             };
-            
+
             if (onRecordingCompleteCallback.current) {
               onRecordingCompleteCallback.current(failedRecording);
             }
           }
         } else {
-          console.log('ℹ️ Auto-save is disabled, recording will not be saved to database automatically.');
+          console.log(
+            "ℹ️ Auto-save is disabled, recording will not be saved to database automatically."
+          );
         }
 
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);

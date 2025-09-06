@@ -3,7 +3,6 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import "./App.css";
 
-// Components
 import RecordPanel from "./components/RecordPanel";
 import UploadPanel from "./components/UploadPanel";
 import Sidebar from "./components/Sidebar";
@@ -14,7 +13,6 @@ import TranscriptView from "./views/TranscriptView";
 import ImportView from "./views/ImportView";
 import ChatView from "./views/ChatView";
 
-// Custom Hooks
 import { useRecording } from "./hooks/useRecording";
 import { useTranscript } from "./hooks/useTranscript";
 import { useSummary } from "./hooks/useSummary";
@@ -50,7 +48,6 @@ function App() {
 
       <main className="app-main">
         <div className="feed-container">
-          {/* Error Message */}
           {error && (
             <div
               className="feed-card"
@@ -65,7 +62,6 @@ function App() {
             </div>
           )}
 
-          {/* View Components */}
           {currentView === "transcripts" && (
             <TranscriptView
               recording={recording}
@@ -82,7 +78,6 @@ function App() {
         </div>
       </main>
 
-      {/* Toast Container */}
       <ToastContainer
         position="top-right"
         autoClose={3000}
@@ -96,7 +91,6 @@ function App() {
         theme="light"
       />
 
-      {/* Chat Input - only in Chat view */}
       {currentView === "chat" && (
         <ChatInput
           onSendMessage={chat.sendMessage}
@@ -108,7 +102,6 @@ function App() {
         />
       )}
 
-      {/* Record Modal */}
       <Modal
         open={showRecordModal}
         title="Record"
@@ -129,7 +122,6 @@ function App() {
         />
       </Modal>
 
-      {/* Paste Text Modal */}
       <Modal
         open={showPasteModal}
         title="Add text source"

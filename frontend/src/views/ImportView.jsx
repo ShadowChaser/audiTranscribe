@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "react-toastify";
 import jsPDF from "jspdf";
+import { copyToClipboard, preprocessMarkdown, processConversationSummary, markdownToPDFText } from "../utils/clipboard";
 import FeedCard from "../components/FeedCard";
 import UploadPanel from "../components/UploadPanel";
 
@@ -59,21 +60,58 @@ const ImportView = ({ transcript, summary }) => {
   // Export functionality
   const exportToPDF = async (summaryText, title) => {
     try {
+      // Process the summary text using the same functions as clipboard.js
+      let processedText = summaryText;
+      
+      // Check if it's a conversation summary and process accordingly
+      if (
+        summaryText.includes("- The assistant") ||
+        summaryText.includes("- The user") ||
+        summaryText.includes("Summary of the conversation") ||
+        summaryText.match(/^- .*$/m) // Any line starting with "- "
+      ) {
+        processedText = processConversationSummary(summaryText);
+      } else {
+        processedText = preprocessMarkdown(summaryText);
+      }
+      
+      // Convert markdown to properly formatted plain text for PDF
+      processedText = markdownToPDFText(processedText);
+      
       const pdf = new jsPDF();
-
+      const pageWidth = pdf.internal.pageSize.width;
+      const margin = 20;
+      const contentWidth = pageWidth - 2 * margin;
+  
+      // Add title
       pdf.setFontSize(20);
       pdf.setFont("helvetica", "bold");
-      pdf.text(title, 20, 30);
-
-      pdf.setFontSize(10);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(`Generated on: ${new Date().toLocaleString()}`, 20, 40);
-
+      pdf.text(title, margin, 20);
+  
+      // Add the main summary text with proper wrapping
       pdf.setFontSize(12);
-      const splitText = pdf.splitTextToSize(summaryText, 170);
-      pdf.text(splitText, 20, 60);
-
-      pdf.save(`${title.replace(/\\s+/g, "_")}_${Date.now()}.pdf`);
+      pdf.setFont("helvetica", "normal");
+      const splitText = pdf.splitTextToSize(processedText, contentWidth);
+  
+      // Calculate if we need a new page based on content length
+      let yPosition = 30;
+      const lineHeight = 7;
+      const maxLinesPerPage = Math.floor(
+        (pdf.internal.pageSize.height - yPosition) / lineHeight
+      );
+  
+      splitText.forEach((line, index) => {
+        if (index > 0 && index % maxLinesPerPage === 0) {
+          pdf.addPage();
+          yPosition = 20;
+        }
+        pdf.text(line, margin, yPosition);
+        yPosition += lineHeight;
+      });
+  
+      // Save the PDF
+      const fileName = `${title.replace(/\\s+/g, "_")}_${Date.now()}.pdf`;
+      pdf.save(fileName);
       toast.success("PDF exported successfully!");
     } catch (err) {
       console.error("PDF export error:", err);
@@ -82,17 +120,6 @@ const ImportView = ({ transcript, summary }) => {
   };
 
   // Helper functions
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Copied to clipboard!");
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-      toast.error(
-        "Failed to copy to clipboard. Please select and copy manually."
-      );
-    }
-  };
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];

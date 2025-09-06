@@ -1,10 +1,10 @@
 import FeedCard from "../components/FeedCard";
 import { toast } from "react-toastify";
+import { copyToClipboard } from "../utils/clipboard";
 
 const ChatView = ({ chat }) => {
   return (
     <>
-      {/* Chat Messages */}
       {chat.messages.map((msg, index) => (
         <FeedCard
           key={index}
@@ -15,10 +15,7 @@ const ChatView = ({ chat }) => {
           actions={[
             <button
               key="copy"
-              onClick={() => {
-                navigator.clipboard.writeText(msg.content);
-                toast.success("Copied to clipboard!");
-              }}
+              onClick={() => copyToClipboard(msg.content)}
               className="btn btn-outline btn-sm"
               title="Copy message to clipboard"
             >
@@ -28,7 +25,6 @@ const ChatView = ({ chat }) => {
         />
       ))}
 
-      {/* Loading Shimmer */}
       {chat.loading && (
         <div className="feed-card-item" aria-busy="true" aria-live="polite">
           <div className="feed-card-avatar skeleton skeleton-avatar" />

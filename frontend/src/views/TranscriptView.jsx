@@ -150,16 +150,96 @@ const TranscriptView = ({ recording, transcript, summary }) => {
     }
   };
 
-  // Helper functions
-  const copyToClipboard = async (text) => {
+  // Helper functions to handle markdown to HTML conversion
+  const markdownToHtml = (markdown) => {
+    // First, handle headers with proper spacing
+    let html = markdown
+      // Headers with proper spacing
+      .replace(/^#\s+(.+?)(\n|$)/gm, '<h1 style="font-size: 1.5em; font-weight: bold; margin: 1em 0 0.5em 0;">$1</h1>\n')
+      .replace(/^##\s+(.+?)(\n|$)/gm, '<h2 style="font-size: 1.3em; font-weight: bold; margin: 1em 0 0.5em 0;">$1</h2>\n')
+      .replace(/^###\s+(.+?)(\n|$)/gm, '<h3 style="font-size: 1.1em; font-weight: bold; margin: 1em 0 0.5em 0;">$1</h3>\n')
+      
+      // Bold and italic with proper spacing
+      .replace(/\*\*\*([^*]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*([^*]+?)\*\*/g, '<strong style="font-weight: bold;">$1</strong>')
+      .replace(/\*([^*\n]+?)\*/g, '<em style="font-style: italic;">$1</em>')
+      .replace(/__([^_]+?)__/g, '<strong style="font-weight: bold;">$1</strong>')
+      .replace(/_([^_\n]+?)_/g, '<em style="font-style: italic;">$1</em>')
+      
+      // Code blocks with proper formatting
+      .replace(/```([\s\S]*?)```/g, '<pre style="background: #f4f4f4; padding: 1em; border-radius: 4px; overflow-x: auto;"><code style="font-family: monospace;">$1</code></pre>')
+      .replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace;">$1</code>')
+      
+      // Lists with proper indentation
+      .replace(/^\*\s+(.+?)(?=\n\s*\n|$)/gm, '<li style="margin-bottom: 0.5em;">$1</li>')
+      .replace(/^\d+\.\s+(.+?)(?=\n\s*\n|$)/gm, '<li style="margin-bottom: 0.5em;">$1</li>')
+      
+      // Links and images
+      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img alt="$1" src="$2" style="max-width: 100%;">')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #3b82f6; text-decoration: underline;">$1</a>');
+
+    // Handle lists by wrapping consecutive <li> in <ul> or <ol>
+    html = html.replace(/(<li[^>]*>.*<\/li>\n?)+/g, function(match) {
+      // Check if it's an ordered list (starts with number)
+      if (/^<li[^>]*>\s*\d+\./.test(match)) {
+        return '<ol style="padding-left: 2em; margin: 1em 0;">' + match + '</ol>';
+      } else {
+        return '<ul style="padding-left: 2em; margin: 1em 0; list-style-type: disc;">' + match + '</ul>';
+      }
+    });
+
+    // Handle paragraphs - split by double newlines
+    html = html.split('\n\n').map(paragraph => {
+      // Skip if already wrapped in a block element
+      if (/^<(h[1-6]|ul|ol|li|p|div|pre|blockquote|hr)/i.test(paragraph.trim()) || 
+          /<\/(h[1-6]|ul|ol|li|p|div|pre|blockquote|hr)>/i.test(paragraph.trim())) {
+        return paragraph;
+      }
+      // Skip empty paragraphs
+      if (!paragraph.trim()) return '';
+      return `<p style="margin: 1em 0; line-height: 1.6;">${paragraph.replace(/\n/g, '<br>')}</p>`;
+    }).join('\n');
+
+    return html;
+  };
+
+  const copyToClipboard = async (content) => {
     try {
-      await navigator.clipboard.writeText(text);
+      // Check if content is markdown (contains markdown syntax)
+      const isMarkdown = /[#*_`[]]/.test(content);
+      
+      if (isMarkdown) {
+        // Convert markdown to HTML
+        const html = markdownToHtml(content);
+        
+        // Try to copy as rich text (HTML)
+        if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+          const blob = new Blob([html], { type: 'text/html' });
+          const textBlob = new Blob([content], { type: 'text/plain' });
+          const data = new ClipboardItem({
+            'text/html': blob,
+            'text/plain': textBlob
+          });
+          await navigator.clipboard.write([data]);
+          toast.success("Copied to clipboard with formatting!");
+          return;
+        }
+      }
+      
+      // Fallback to plain text
+      await navigator.clipboard.writeText(content);
       toast.success("Copied to clipboard!");
+      
     } catch (err) {
-      console.error("Failed to copy text: ", err);
-      toast.error(
-        "Failed to copy to clipboard. Please select and copy manually."
-      );
+      console.error("Failed to copy:", err);
+      // Last resort: show the text in a prompt for manual copy
+      try {
+        window.prompt("Copy to clipboard: Ctrl+C, Enter", content);
+        toast.info("Please copy the text from the prompt");
+      } catch (e) {
+        console.error("Failed to show copy prompt:", e);
+        toast.error("Failed to copy. Please select and copy manually.");
+      }
     }
   };
 

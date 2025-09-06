@@ -36,8 +36,9 @@ const io = socketIo(server, {
   },
 });
 
-// Import health check routes
+// Import routes
 const healthRoutes = require("./routes/health");
+const markdownRoutes = require("./routes/markdown");
 
 // Configure CORS to allow requests from frontend
 app.use(
@@ -57,7 +58,8 @@ app.use(
 app.use(express.json());
 
 // Mount health check routes
-app.use("/", healthRoutes);
+app.use("/health", healthRoutes);
+app.use("/api", markdownRoutes);
 
 // Chat endpoint using local Ollama
 

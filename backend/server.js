@@ -147,6 +147,9 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
   }
 });
 
+// Import prompts
+const { getPromptForStyle, formatPrompt } = require('./config/prompts');
+
 // Summarization endpoint using local Ollama
 app.post("/summarize", async (req, res) => {
   try {
@@ -161,54 +164,9 @@ app.post("/summarize", async (req, res) => {
       console.log("[SUMMARIZE] text length:", text.length);
     } catch {}
 
-    const promptPrefix =
-      style && typeof style === "string" && style.trim().length > 0
-        ? `You are a world-class note-taker. Produce a polished, easy-to-skim MARKDOWN summary in the requested style: ${style}. 
-Use proper Markdown headers, bold key terms, and bullet lists. Include actionable takeaways.
-
-Format exactly as:
-
-# Summary
-
-## Key Points
-- ...
-
-## Action Items
-- [ ] ...
-
-## Important Details
-- ...
-
-## Glossary (if applicable)
-- **Term**: definition
-
-Summarize the following text:
-"""
-${text}
-"""`
-        : `You are a world-class note-taker. Produce a polished MARKDOWN study summary that is concise and structured.
-Use clear section headers, bullet points, and bold emphasis for critical phrases. Prefer lists over paragraphs.
-
-Format exactly as:
-
-# Summary
-
-## Key Points
-- ...
-
-## Action Items
-- [ ] ...
-
-## Important Details
-- ...
-
-## Glossary (if applicable)
-- **Term**: definition
-
-Summarize the following text:
-"""
-${text}
-"""`;
+    // Get the appropriate prompt based on style
+    const promptTemplate = getPromptForStyle(style);
+    const promptPrefix = formatPrompt(promptTemplate, text);
 
     try {
       console.log("[SUMMARIZE] prompt length:", promptPrefix.length);

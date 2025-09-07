@@ -1,27 +1,125 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
 import jsPDF from "jspdf";
 import { copyToClipboard, preprocessMarkdown, processConversationSummary, markdownToPDFText } from "../utils/clipboard";
 import FeedCard from "../components/FeedCard";
+import LoadingOverlay from "../components/LoadingOverlay";
 
 const TranscriptView = ({ recording, transcript, summary }) => {
   const [savedRecordings, setSavedRecordings] = useState([]);
   const [editingTitles, setEditingTitles] = useState({});
   const [customTitles, setCustomTitles] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState('Processing...');
 
-  useEffect(() => {
-    // Only fetch saved recordings once when component mounts (page first loads)
-    console.log("🔄 Fetching saved recordings on page load...");
-    fetchSavedRecordings();
+  const startLoading = useCallback((message = 'Processing...') => {
+    setLoading(true);
+    setLoadingMessage(message);
+    setLoadingProgress(0);
   }, []);
 
-  const fetchSavedRecordings = async () => {
+  const updateProgress = useCallback((progress) => {
+    setLoadingProgress(progress);
+  }, []);
+
+  const stopLoading = useCallback(() => {
+    setLoading(false);
+    setLoadingProgress(0);
+  }, []);
+
+  const simulateProgress = () => {
+    let progress = 0;
+    updateProgress(0);
+    
+    const interval = setInterval(() => {
+      progress += Math.random() * 10;
+      if (progress >= 90) {
+        clearInterval(interval);
+      }
+      updateProgress(Math.min(progress, 90));
+    }, 500);
+
+    return () => clearInterval(interval);
+  };
+
+  const handleSummaryResult = async (recording, result, type) => {
+    // Update local state
+    setSavedRecordings((prev) =>
+      prev.map((r) =>
+        r.filename === recording.filename
+          ? { ...r, summary: result }
+          : r
+      )
+    );
+
+    // Save to database using the recording ID
     try {
+      await axios.post(
+        `http://localhost:3001/recordings/${recording._id}/summary`,
+        {
+          summary: result,
+        }
+      );
+      console.log(
+        `✅ ${type} saved to database for saved recording:`,
+        recording._id
+      );
+      toast.success(`${type} generated and saved!`);
+    } catch (error) {
+      console.error(
+        `❌ Failed to save ${type.toLowerCase()} to database:`,
+        error
+      );
+      toast.warn(
+        `${type} generated but failed to save to database`
+      );
+    } finally {
+      stopLoading();
+    }
+  };
+
+  const fetchSavedRecordings = useCallback(async () => {
+    try {
+      startLoading('Loading recordings...');
       const response = await axios.get("http://localhost:3001/recordings");
       setSavedRecordings(response.data.recordings);
+      stopLoading();
     } catch (err) {
       console.error("Failed to fetch saved recordings:", err);
+      stopLoading();
+    }
+  }, [startLoading, stopLoading]);
+
+  // Initial data fetch
+  useEffect(() => {
+    console.log("🔄 Fetching saved recordings on page load...");
+    fetchSavedRecordings();
+  }, [fetchSavedRecordings]);
+
+  const _transcribeRecording = async (filename) => {
+    try {
+      startLoading('Transcribing audio...');
+      const response = await axios.post(
+        `http://localhost:3001/transcribe/${filename}`,
+        {},
+        {
+          onDownloadProgress: (progressEvent) => {
+            if (progressEvent.lengthComputable) {
+              const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              updateProgress(percentCompleted);
+            }
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Error transcribing recording:", error);
+      toast.error("Failed to transcribe recording");
+      return null;
+    } finally {
+      stopLoading();
     }
   };
 
@@ -274,10 +372,37 @@ const TranscriptView = ({ recording, transcript, summary }) => {
         recording.onRecordingComplete(null);
       }
     };
-  }, [recording]);
+  }, [recording, fetchSavedRecordings]);
+
+  const _saveRecording = async (recording) => {
+    try {
+      startLoading('Saving recording...');
+      const formData = new FormData();
+      formData.append("file", recording.file);
+      formData.append("filename", recording.filename);
+
+      await axios.post("http://localhost:3001/recordings/upload", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          updateProgress(percentCompleted);
+        },
+      });
+      await fetchSavedRecordings();
+      toast.success("Recording saved successfully!");
+    } catch (error) {
+      console.error("Error saving recording:", error);
+      toast.error("Failed to save recording");
+    } finally {
+      stopLoading();
+    }
+  };
 
   return (
     <div>
+      {loading && <LoadingOverlay message={loadingMessage} progress={loadingProgress} />}
       {/* Toolbar */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
         <button
@@ -362,102 +487,77 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                 )}
                 {rec.hasTranscript && rec.transcript && (
                   <>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const result = await summary.summarizeText(
-                          rec.transcript,
-                          false
-                        );
-                        if (result) {
-                          // Update local state
-                          setSavedRecordings((prev) =>
-                            prev.map((r) =>
-                              r.filename === rec.filename
-                                ? { ...r, summary: result }
-                                : r
-                            )
-                          );
-
-                          // Save to database using the recording ID
+                    <div className="btn-group" role="group" aria-label="Summary types">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          startLoading('Generating concise summary...');
+                          const progressInterval = simulateProgress();
                           try {
-                            await axios.post(
-                              `http://localhost:3001/recordings/${rec._id}/summary`,
-                              {
-                                summary: result,
-                              }
+                            const result = await summary.summarizeText(
+                              rec.transcript,
+                              'summary'
                             );
-                            console.log(
-                              "✅ Summary saved to database for saved recording:",
-                              rec._id
-                            );
-                          } catch (error) {
-                            console.error(
-                              "❌ Failed to save summary to database:",
-                              error
-                            );
-                            toast.warn(
-                              "Summary generated but failed to save to database"
-                            );
+                            if (result) {
+                              await handleSummaryResult(rec, result, 'Summary');
+                            }
+                          } finally {
+                            clearInterval(progressInterval);
                           }
-
-                          toast.success("Summary generated!");
-                        }
-                      }}
-                      className="btn btn-secondary btn-sm"
-                      disabled={summary.summarizing}
-                      title="Generate summary"
-                    >
-                      {summary.summarizing ? "⏳" : "🧠"}
-                    </button>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const result = await summary.summarizeText(
-                          rec.transcript,
-                          true
-                        );
-                        if (result) {
-                          // Update local state
-                          setSavedRecordings((prev) =>
-                            prev.map((r) =>
-                              r.filename === rec.filename
-                                ? { ...r, summary: result }
-                                : r
-                            )
-                          );
-
-                          // Save to database using the recording ID
+                        }}
+                        className="btn btn-secondary btn-sm"
+                        disabled={summary.summarizing}
+                        title="Generate concise summary"
+                      >
+                        {summary.summarizing ? "⏳" : "📝"}
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          startLoading('Generating study notes...');
+                          const progressInterval = simulateProgress();
                           try {
-                            await axios.post(
-                              `http://localhost:3001/recordings/${rec._id}/summary`,
-                              {
-                                summary: result,
-                              }
+                            const result = await summary.summarizeText(
+                              rec.transcript,
+                              'study'
                             );
-                            console.log(
-                              "✅ Study notes saved to database for saved recording:",
-                              rec._id
-                            );
-                          } catch (error) {
-                            console.error(
-                              "❌ Failed to save study notes to database:",
-                              error
-                            );
-                            toast.warn(
-                              "Study notes generated but failed to save to database"
-                            );
+                            if (result) {
+                              await handleSummaryResult(rec, result, 'Study notes');
+                            }
+                          } finally {
+                            clearInterval(progressInterval);
                           }
-
-                          toast.success("Study notes generated!");
-                        }
-                      }}
-                      className="btn btn-secondary btn-sm"
-                      disabled={summary.summarizing}
-                      title="Generate study notes"
-                    >
-                      {summary.summarizing ? "⏳" : "📘"}
-                    </button>
+                        }}
+                        className="btn btn-secondary btn-sm"
+                        disabled={summary.summarizing}
+                        title="Generate study notes"
+                      >
+                        {summary.summarizing ? "⏳" : "📚"}
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          startLoading('Generating detailed summary...');
+                          const progressInterval = simulateProgress();
+                          try {
+                            const result = await summary.summarizeText(
+                              rec.transcript,
+                              'detailed'
+                            );
+                            if (result) {
+                              await handleSummaryResult(rec, result, 'Detailed summary');
+                            }
+                          } finally {
+                            clearInterval(progressInterval);
+                          }
+                        }}
+                        className="btn btn-secondary btn-sm"
+                        disabled={summary.summarizing}
+                        title="Generate detailed summary"
+                      >
+                        {summary.summarizing ? "⏳" : "📋"}
+                      </button>
+                    </div>
                   </>
                 )}
                 <button

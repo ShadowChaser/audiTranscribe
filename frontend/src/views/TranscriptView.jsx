@@ -5,6 +5,7 @@ import jsPDF from "jspdf";
 import { copyToClipboard, preprocessMarkdown, processConversationSummary, markdownToPDFText } from "../utils/clipboard";
 import FeedCard from "../components/FeedCard";
 import LoadingOverlay from "../components/LoadingOverlay";
+import SummaryLoadingOverlay from "../components/SummaryLoadingOverlay";
 
 const TranscriptView = ({ recording, transcript, summary }) => {
   const [savedRecordings, setSavedRecordings] = useState([]);
@@ -403,6 +404,12 @@ const TranscriptView = ({ recording, transcript, summary }) => {
   return (
     <div>
       {loading && <LoadingOverlay message={loadingMessage} progress={loadingProgress} />}
+      {summary.summarizing && (
+        <SummaryLoadingOverlay 
+          progress={summary.progress} 
+          estimatedTimeRemaining={summary.estimatedTimeRemaining} 
+        />
+      )}
       {/* Toolbar */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
         <button

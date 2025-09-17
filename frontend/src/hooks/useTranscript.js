@@ -51,7 +51,7 @@ export const useTranscript = () => {
   };
 
   const transcribeRecording = async (recording) => {
-    if (!recording || !recording.audio) {
+    if (!recording) {
       setError("Recording not found or invalid");
       return null;
     }
@@ -60,35 +60,71 @@ export const useTranscript = () => {
     setError("");
 
     try {
-      const formData = new FormData();
-      formData.append("audio", recording.audio, "recording.webm");
-
-      const response = await axios.post(
-        "http://localhost:3001/upload",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      if (response.data.transcriptFile) {
-        const transcriptResponse = await axios.get(
-          `http://localhost:3001/transcript/${response.data.transcriptFile
-            .split("/")
-            .pop()}`
+      // Check if this is a saved recording (has backendFilename) or new recording (has audio blob)
+      if (recording.backendFilename || recording.filename) {
+        // This is a saved recording - use the /transcribe/:filename endpoint
+        const filename = recording.backendFilename || recording.filename;
+        
+        const response = await axios.post(
+          `http://localhost:3001/transcribe/${filename}`,
+          {},
+          {
+            timeout: 300000, // 5 minutes timeout for transcription
+          }
         );
-        const backendFilename = response.data.transcriptFile
-          .split("/")
-          .pop()
-          .replace(".txt", "");
-        return {
-          transcript: transcriptResponse.data.content,
-          backendFilename,
-        };
+
+        if (response.data.transcriptFile) {
+          const transcriptResponse = await axios.get(
+            `http://localhost:3001/transcript/${response.data.transcriptFile
+              .split("/")
+              .pop()}`
+          );
+          const backendFilename = response.data.transcriptFile
+            .split("/")
+            .pop()
+            .replace(".txt", "");
+          return {
+            transcript: transcriptResponse.data.content,
+            backendFilename,
+          };
+        }
+        return null;
+      } else if (recording.audio) {
+        // This is a new recording with audio blob - use the /upload endpoint
+        const formData = new FormData();
+        formData.append("audio", recording.audio, "recording.webm");
+
+        const response = await axios.post(
+          "http://localhost:3001/upload",
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+            timeout: 300000, // 5 minutes timeout
+          }
+        );
+
+        if (response.data.transcriptFile) {
+          const transcriptResponse = await axios.get(
+            `http://localhost:3001/transcript/${response.data.transcriptFile
+              .split("/")
+              .pop()}`
+          );
+          const backendFilename = response.data.transcriptFile
+            .split("/")
+            .pop()
+            .replace(".txt", "");
+          return {
+            transcript: transcriptResponse.data.content,
+            backendFilename,
+          };
+        }
+        return null;
+      } else {
+        setError("Recording has neither audio data nor backend filename");
+        return null;
       }
-      return null;
     } catch (err) {
       console.error("Transcription error:", err);
       const errorMsg =

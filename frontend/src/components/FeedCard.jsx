@@ -1,6 +1,5 @@
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import MarkdownRenderer from './MarkdownRenderer';
 
 export default function FeedCard({ 
   avatar = '🎤', 
@@ -40,11 +39,13 @@ export default function FeedCard({
         
         {fullText ? (
           <div className="feed-card-fulltext">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{fullText}</ReactMarkdown>
+            <MarkdownRenderer content={fullText} />
           </div>
         ) : (
           snippet && (
-            <p className="feed-card-snippet">{snippet}</p>
+            <div className="feed-card-snippet">
+              <MarkdownRenderer content={snippet} />
+            </div>
           )
         )}
         

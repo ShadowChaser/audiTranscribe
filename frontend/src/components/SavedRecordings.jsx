@@ -75,7 +75,7 @@ export default function SavedRecordings({
 
               <audio
                 controls
-                src={`http://localhost:3001/uploads/${recording.filename}`}
+                src={`${API_BASE_URL}/uploads/${recording.filename}`}
                 className="audio-player"
               />
 
@@ -83,7 +83,7 @@ export default function SavedRecordings({
                 <button
                   onClick={() => {
                     const link = document.createElement("a");
-                    link.href = `http://localhost:3001/uploads/${recording.filename}`;
+                    link.href = `${API_BASE_URL}/uploads/${recording.filename}`;
                     link.download = recording.filename;
                     link.click();
                   }}

@@ -20,7 +20,7 @@ export const useTranscript = () => {
       formData.append("audio", file);
 
       const uploadRes = await axios.post(
-        "http://localhost:3001/upload",
+        `${API_BASE_URL}/upload`,
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
@@ -30,7 +30,7 @@ export const useTranscript = () => {
       );
 
       const transcriptRes = await axios.get(
-        `http://localhost:3001/transcript/${uploadRes.data.transcriptFile
+        `${API_BASE_URL}/transcript/${uploadRes.data.transcriptFile
           .split("/")
           .pop()}`,
         {
@@ -68,7 +68,7 @@ export const useTranscript = () => {
         const filename = recording.backendFilename || recording.filename;
         
         const response = await axios.post(
-          `http://localhost:3001/transcribe/${filename}`,
+          `${API_BASE_URL}/transcribe/${filename}`,
           {},
           {
             timeout: 0, // allow long-running transcription
@@ -77,7 +77,7 @@ export const useTranscript = () => {
 
         if (response.data.transcriptFile) {
           const transcriptResponse = await axios.get(
-            `http://localhost:3001/transcript/${response.data.transcriptFile
+            `${API_BASE_URL}/transcript/${response.data.transcriptFile
               .split("/")
               .pop()}`
           );
@@ -97,7 +97,7 @@ export const useTranscript = () => {
         formData.append("audio", recording.audio, "recording.webm");
 
         const response = await axios.post(
-          "http://localhost:3001/upload",
+          `${API_BASE_URL}/upload`,
           formData,
           {
             headers: {
@@ -109,7 +109,7 @@ export const useTranscript = () => {
 
         if (response.data.transcriptFile) {
           const transcriptResponse = await axios.get(
-            `http://localhost:3001/transcript/${response.data.transcriptFile
+            `${API_BASE_URL}/transcript/${response.data.transcriptFile
               .split("/")
               .pop()}`
           );

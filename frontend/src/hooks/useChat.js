@@ -13,7 +13,7 @@ export const useChat = () => {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await axios.get("http://localhost:3001/chat/sessions");
+      const res = await axios.get(`${API_BASE_URL}/chat/sessions`);
       setSessions(res.data.sessions || []);
       return res.data.sessions || [];
     } catch (err) {
@@ -29,7 +29,7 @@ export const useChat = () => {
     setSources([]); // Clear sources for new chat
     
     try {
-      const res = await axios.post("http://localhost:3001/chat/sessions", { title });
+      const res = await axios.post(`${API_BASE_URL}/chat/sessions`, { title });
       const newSession = res.data.session;
       if (newSession) {
         setSessions(prev => [newSession, ...prev]);
@@ -50,7 +50,7 @@ export const useChat = () => {
     setMessages([]); // Clear while loading
     
     try {
-      const res = await axios.get(`http://localhost:3001/chat/sessions/${sessionId}`);
+      const res = await axios.get(`${API_BASE_URL}/chat/sessions/${sessionId}`);
       const session = res.data.session;
       if (session) {
         setActiveSessionId(session._id);
@@ -69,7 +69,7 @@ export const useChat = () => {
 
   const deleteSession = async (sessionId) => {
     try {
-      await axios.delete(`http://localhost:3001/chat/sessions/${sessionId}`);
+      await axios.delete(`${API_BASE_URL}/chat/sessions/${sessionId}`);
       setSessions(prev => prev.filter(s => s._id !== sessionId));
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
@@ -112,7 +112,7 @@ export const useChat = () => {
       setMessages((prev) => [...prev, userMessage]);
 
       const response = await axios.post(
-        "http://localhost:3001/chat",
+        `${API_BASE_URL}/chat`,
         {
           message,
           context,
@@ -145,7 +145,7 @@ export const useChat = () => {
     try {
       const form = new FormData();
       form.append("file", fileObj);
-      const res = await axios.post("http://localhost:3001/ingest/file", form, {
+      const res = await axios.post(`${API_BASE_URL}/ingest/file`, form, {
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 120000,
       });
@@ -161,7 +161,7 @@ export const useChat = () => {
   const addTextSource = async (text, name = "Pasted Text") => {
     try {
       const res = await axios.post(
-        "http://localhost:3001/ingest/text",
+        `${API_BASE_URL}/ingest/text`,
         { text, name },
         { timeout: 120000 }
       );
@@ -176,7 +176,7 @@ export const useChat = () => {
 
   const removeSource = async (id) => {
     setSources((prev) => prev.filter((s) => s.id !== id));
-    await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
+    await axios.delete(`${API_BASE_URL}/ingest/${id}`).catch(() => {});
   };
 
   return {

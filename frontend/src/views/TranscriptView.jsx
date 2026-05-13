@@ -57,7 +57,7 @@ const TranscriptView = ({ recording, transcript, summary }) => {
 
     try {
       await axios.post(
-        `http://localhost:3001/recordings/${recording._id}/summary`,
+        `${API_BASE_URL}/recordings/${recording._id}/summary`,
         {
           summary: result,
         }
@@ -74,7 +74,7 @@ const TranscriptView = ({ recording, transcript, summary }) => {
   const fetchSavedRecordings = useCallback(async () => {
     try {
       startLoading('Loading recordings...');
-      const response = await axios.get("http://localhost:3001/recordings");
+      const response = await axios.get(`${API_BASE_URL}/recordings`);
       setSavedRecordings(response.data.recordings);
       stopLoading();
     } catch (err) {
@@ -167,10 +167,10 @@ const TranscriptView = ({ recording, transcript, summary }) => {
   const clearAllRecordings = async () => {
     if (!window.confirm("Delete all recordings permanently?")) return;
     try {
-      const response = await axios.get("http://localhost:3001/recordings");
+      const response = await axios.get(`${API_BASE_URL}/recordings`);
       const ids = response.data.recordings.map((rec) => rec._id);
       if (ids.length === 0) return;
-      await axios.post("http://localhost:3001/recordings/bulk-delete", { identifiers: ids });
+      await axios.post(`${API_BASE_URL}/recordings/bulk-delete`, { identifiers: ids });
       fetchSavedRecordings();
       toast.success("All recordings deleted");
     } catch (error) {
@@ -253,7 +253,7 @@ const TranscriptView = ({ recording, transcript, summary }) => {
                       }}>📚 Study</button>
                     </>
                   )}
-                  <button className="btn btn-outline btn-sm" style={{ color: 'var(--color-danger)' }} onClick={() => axios.delete(`http://localhost:3001/recordings/${rec.filename}`).then(() => fetchSavedRecordings())}>🗑️</button>
+                  <button className="btn btn-outline btn-sm" style={{ color: 'var(--color-danger)' }} onClick={() => axios.delete(`${API_BASE_URL}/recordings/${rec.filename}`).then(() => fetchSavedRecordings())}>🗑️</button>
                 </div>
               }
             />

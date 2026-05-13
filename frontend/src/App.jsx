@@ -4,7 +4,6 @@ import "react-toastify/dist/ReactToastify.css";
 import "./App.css";
 
 import RecordPanel from "./components/RecordPanel";
-import UploadPanel from "./components/UploadPanel";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import Modal from "./components/Modal";
@@ -19,55 +18,35 @@ import { useSummary } from "./hooks/useSummary";
 import { useChat } from "./hooks/useChat";
 
 function App() {
-  // Global state
   const [currentView, setCurrentView] = useState("chat");
-  const [error, setError] = useState("");
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteModalText, setPasteModalText] = useState("");
 
-  // Custom hooks
   const recording = useRecording({ enableAutoSave: true });
   const transcript = useTranscript();
   const summary = useSummary();
   const chat = useChat();
 
-  // Set global error from any source
   useEffect(() => {
-    const newError = transcript.error || summary.error || chat.error;
-    setError(newError);
+    const error = transcript.error || summary.error || chat.error;
+    if (error) toast.error(error);
   }, [transcript.error, summary.error, chat.error]);
 
   return (
     <div className="app-shell">
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+      
       <Topbar
+        currentView={currentView}
         onImportClick={() => setCurrentView("import")}
         onRecordClick={() => setShowRecordModal(true)}
       />
 
       <main className="app-main">
         <div className="feed-container">
-          {error && (
-            <div
-              className="feed-card"
-              style={{
-                borderColor: "#fecaca",
-                background: "#fff1f2",
-                color: "#b91c1c",
-                marginBottom: "16px",
-              }}
-            >
-              <strong>⚠️ Error:</strong> {error}
-            </div>
-          )}
-
           {currentView === "transcripts" && (
-            <TranscriptView
-              recording={recording}
-              transcript={transcript}
-              summary={summary}
-            />
+            <TranscriptView recording={recording} transcript={transcript} summary={summary} />
           )}
 
           {currentView === "import" && (
@@ -79,16 +58,11 @@ function App() {
       </main>
 
       <ToastContainer
-        position="top-right"
+        position="bottom-right"
         autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
+        theme="dark"
+        hideProgressBar
+        newestOnTop
       />
 
       {currentView === "chat" && (
@@ -104,9 +78,9 @@ function App() {
 
       <Modal
         open={showRecordModal}
-        title="Record"
+        title="Capture New Session"
         onClose={() => setShowRecordModal(false)}
-        width={720}
+        width={560}
       >
         <RecordPanel
           isRecording={recording.isRecording}
@@ -124,50 +98,36 @@ function App() {
 
       <Modal
         open={showPasteModal}
-        title="Add text source"
+        title="Add Knowledge Source"
         onClose={() => {
           setShowPasteModal(false);
           setPasteModalText("");
         }}
-        width={720}
+        width={560}
       >
-        <div style={{ display: "grid", gap: "12px" }}>
+        <div style={{ display: "grid", gap: "20px" }}>
           <textarea
-            rows={8}
-            placeholder="Paste text to chat over..."
+            rows={10}
+            placeholder="Paste text, notes, or articles to chat over..."
             value={pasteModalText}
             onChange={(e) => setPasteModalText(e.target.value)}
-            style={{ width: "100%" }}
+            style={{ width: "100%", background: 'var(--bg-input)' }}
           />
-          <div
-            style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}
-          >
+          <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+            <button className="btn btn-secondary" onClick={() => setShowPasteModal(false)}>Cancel</button>
             <button
               className="btn btn-primary"
               disabled={!pasteModalText.trim()}
               onClick={async () => {
                 const text = pasteModalText.trim();
-                if (!text) return;
-                const success = await chat.addTextSource(text);
-                if (success) {
+                if (await chat.addTextSource(text)) {
                   setPasteModalText("");
                   setShowPasteModal(false);
-                  toast.success("Text added as source successfully!");
-                } else {
-                  toast.error("Failed to add text as source");
+                  toast.success("Source added!");
                 }
               }}
             >
-              Add as Source
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                setShowPasteModal(false);
-                setPasteModalText("");
-              }}
-            >
-              Cancel
+              Add to Context
             </button>
           </div>
         </div>

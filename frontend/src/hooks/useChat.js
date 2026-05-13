@@ -72,11 +72,11 @@ export const useChat = () => {
     }
   };
 
-  const addTextSource = async (text) => {
+  const addTextSource = async (text, name = "Pasted Text") => {
     try {
       const res = await axios.post(
         "http://localhost:3001/ingest/text",
-        { text },
+        { text, name },
         { timeout: 120000 }
       );
       const { id, doc } = res.data;

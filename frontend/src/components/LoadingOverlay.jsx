@@ -1,49 +1,73 @@
 import React from 'react';
-import { CircularProgress, LinearProgress, Box, Typography } from '@mui/material';
 
 export const LoadingOverlay = ({ progress, message = 'Processing...' }) => {
   return (
-    <Box
-      sx={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 9999,
-        color: 'white',
-      }}
-    >
-      <CircularProgress color="primary" size={60} thickness={4} />
-      <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(15, 17, 23, 0.8)',
+      backdropFilter: 'blur(12px)',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 9999,
+      color: 'white',
+      animation: 'fadeIn 0.3s ease'
+    }}>
+      <div style={{ 
+        width: '60px', 
+        height: '60px', 
+        border: '4px solid rgba(99, 102, 241, 0.1)', 
+        borderTop: '4px solid var(--text-accent)', 
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        marginBottom: '24px',
+        boxShadow: 'var(--shadow-glow)'
+      }}></div>
+      
+      <h3 style={{ 
+        fontSize: '1.25rem', 
+        fontWeight: '700', 
+        marginBottom: '16px',
+        letterSpacing: '-0.5px'
+      }}>
         {message}
-      </Typography>
+      </h3>
+      
       {progress !== undefined && (
-        <Box sx={{ width: '50%', maxWidth: 400, mt: 2 }}>
-          <LinearProgress
-            variant={progress >= 0 ? 'determinate' : 'indeterminate'}
-            value={progress}
-            sx={{
-              height: 10,
-              borderRadius: 5,
-              '& .MuiLinearProgress-bar': {
-                borderRadius: 5,
-              },
-            }}
-          />
-          {progress >= 0 && (
-            <Typography variant="caption" display="block" textAlign="center" mt={1}>
-              {Math.round(progress)}%
-            </Typography>
-          )}
-        </Box>
+        <div style={{ width: '80%', maxWidth: '400px' }}>
+          <div style={{ 
+            height: '8px', 
+            background: 'rgba(255, 255, 255, 0.05)', 
+            borderRadius: '10px', 
+            overflow: 'hidden',
+            border: '1px solid var(--border-primary)'
+          }}>
+            <div style={{ 
+              height: '100%', 
+              width: `${progress}%`, 
+              background: 'var(--accent-gradient)',
+              transition: 'width 0.3s ease',
+              boxShadow: 'var(--shadow-glow)'
+            }}></div>
+          </div>
+          <p style={{ 
+            marginTop: '12px', 
+            fontSize: '0.85rem', 
+            color: 'var(--text-tertiary)',
+            textAlign: 'center'
+          }}>
+            {Math.round(progress)}% Complete
+          </p>
+        </div>
       )}
-    </Box>
+
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
+    </div>
   );
 };
 

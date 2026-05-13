@@ -10,37 +10,90 @@ const SummaryLoadingOverlay = ({ progress, estimatedTimeRemaining }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
-        <div className="text-center mb-4">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">
-            Generating Summary...
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            {estimatedTimeRemaining !== null 
-              ? `Estimated time remaining: ${formatTime(estimatedTimeRemaining)}`
-              : 'Preparing...'}
-          </p>
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(15, 17, 23, 0.8)',
+      backdropFilter: 'blur(16px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999,
+      animation: 'fadeIn 0.3s ease'
+    }}>
+      <div className="card" style={{ 
+        width: '100%', 
+        maxWdith: '400px', 
+        margin: '0 24px', 
+        textAlign: 'center',
+        padding: '40px',
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-secondary)',
+        boxShadow: 'var(--shadow-lg)'
+      }}>
+        <div style={{ 
+          width: '64px', 
+          height: '64px', 
+          border: '4px solid rgba(99, 102, 241, 0.1)', 
+          borderTop: '4px solid var(--text-accent)', 
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          margin: '0 auto 24px auto',
+          boxShadow: 'var(--shadow-glow)'
+        }}></div>
+        
+        <h3 style={{ fontSize: '1.25rem', fontWeight: '800', marginBottom: '8px' }}>
+          Generating Summary
+        </h3>
+        
+        <p style={{ color: 'var(--text-tertiary)', fontSize: '0.9rem', marginBottom: '32px' }}>
+          {estimatedTimeRemaining !== null 
+            ? `Estimated time: ${formatTime(estimatedTimeRemaining)}`
+            : 'Analyzing transcript content...'}
+        </p>
+        
+        <div style={{ 
+          height: '10px', 
+          background: 'rgba(255, 255, 255, 0.05)', 
+          borderRadius: '20px', 
+          overflow: 'hidden',
+          border: '1px solid var(--border-primary)',
+          marginBottom: '12px'
+        }}>
+          <div style={{ 
+            height: '100%', 
+            width: `${Math.min(100, Math.max(0, progress))}%`, 
+            background: 'var(--accent-gradient)',
+            transition: 'width 0.4s ease-out',
+            boxShadow: 'var(--shadow-glow)'
+          }}></div>
         </div>
         
-        <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mb-2">
-          <div 
-            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
-            style={{ width: `${progress}%` }}
-          ></div>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          fontSize: '0.75rem', 
+          color: 'var(--text-tertiary)',
+          fontWeight: '600'
+        }}>
+          <span>{Math.round(progress)}%</span>
+          <span>Analyzing</span>
         </div>
         
-        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>0%</span>
-          <span>{Math.min(100, Math.max(0, Math.round(progress)))}%</span>
-          <span>100%</span>
-        </div>
-        
-        <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
-          This may take a moment. Please don't close this window.
+        <p style={{ 
+          marginTop: '24px', 
+          fontSize: '0.8rem', 
+          color: 'var(--text-tertiary)',
+          fontStyle: 'italic'
+        }}>
+          "AI is distilling your conversation into key insights..."
         </p>
       </div>
+
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
     </div>
   );
 };

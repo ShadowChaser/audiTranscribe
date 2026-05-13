@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import API_BASE_URL from "../config";
 import { toast } from "react-toastify";
 import jsPDF from "jspdf";
 import { copyToClipboard, preprocessMarkdown, processConversationSummary, markdownToPDFText } from "../utils/clipboard";

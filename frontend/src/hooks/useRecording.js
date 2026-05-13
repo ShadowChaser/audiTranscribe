@@ -15,12 +15,13 @@
 
 import { useState, useRef } from "react";
 import axios from "axios";
+import API_BASE_URL from "../config";
 
 export const useRecording = (options = {}) => {
   // Configuration options
   const {
     enableAutoSave = true, // Set to true by default to enable auto-save
-    autoSaveEndpoint = "http://localhost:3001/recordings/external",
+    autoSaveEndpoint = `${API_BASE_URL}/recordings/external`,
   } = options;
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);

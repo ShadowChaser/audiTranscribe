@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import API_BASE_URL from "../config";
 import FeedCard from "../components/FeedCard";
 import { toast } from "react-toastify";
 import { copyToClipboard } from "../utils/clipboard";
@@ -30,7 +31,7 @@ const ChatView = ({ chat }) => {
   const fetchRecordings = async () => {
     setFetching(true);
     try {
-      const response = await axios.get("http://localhost:3001/recordings");
+      const response = await axios.get(`${API_BASE_URL}/recordings`);
       const withTranscripts = response.data.recordings.filter(r => r.hasTranscript && r.transcript);
       setRecordings(withTranscripts);
     } catch (err) {

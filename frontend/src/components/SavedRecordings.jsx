@@ -1,5 +1,6 @@
 import React from "react";
 import { copyToClipboard } from "../utils/clipboard";
+import API_BASE_URL from "../config";
 
 export default function SavedRecordings({
   savedRecordings,

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import API_BASE_URL from "../config";
 
 // Prompt types that match the backend
 export const SUMMARY_TYPES = {
@@ -62,7 +63,7 @@ export const useSummary = () => {
       
       // Make the API call
       const res = await axios.post(
-        "http://localhost:3001/summarize",
+        `${API_BASE_URL}/summarize`,
         { text, style: styleType },
         { 
           timeout: 120000,

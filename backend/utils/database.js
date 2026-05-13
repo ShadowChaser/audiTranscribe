@@ -232,6 +232,47 @@ async function searchContent(query, types = ['documents', 'transcripts']) {
   }
 }
 
+/**
+ * Create a new chat session
+ */
+async function createChatSession(data) {
+  try {
+    const session = new ChatSession(data);
+    return await session.save();
+  } catch (error) {
+    console.error('Error creating chat session:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all chat sessions
+ */
+async function getChatSessions(limit = 50, offset = 0) {
+  try {
+    return await ChatSession.find({ isActive: true })
+      .sort({ lastActivity: -1 })
+      .limit(limit)
+      .skip(offset)
+      .lean();
+  } catch (error) {
+    console.error('Error getting chat sessions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get chat session by ID
+ */
+async function getChatSessionById(id) {
+  try {
+    return await ChatSession.findById(id).lean();
+  } catch (error) {
+    console.error('Error getting chat session by ID:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   createRecording,
   createTranscript,
@@ -240,5 +281,8 @@ module.exports = {
   createIngestedDocument,
   getIngestedDocuments,
   getIngestedDocumentById,
-  searchContent
+  searchContent,
+  createChatSession,
+  getChatSessions,
+  getChatSessionById
 };

@@ -35,7 +35,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+      <Sidebar currentView={currentView} onNavigate={setCurrentView} chat={chat} />
       
       <Topbar
         currentView={currentView}

@@ -1,16 +1,108 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
+import { toast } from "react-toastify";
 
 export const useChat = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [messages, setMessages] = useState([]);
   const [sources, setSources] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await axios.get("http://localhost:3001/chat/sessions");
+      setSessions(res.data.sessions || []);
+      return res.data.sessions || [];
+    } catch (err) {
+      console.error("Failed to fetch sessions:", err);
+      return [];
+    }
+  }, []);
+
+  const createNewSession = async (title = "New Chat") => {
+    // Provide immediate feedback
+    setActiveSessionId(null);
+    setMessages([]);
+    setSources([]); // Clear sources for new chat
+    
+    try {
+      const res = await axios.post("http://localhost:3001/chat/sessions", { title });
+      const newSession = res.data.session;
+      if (newSession) {
+        setSessions(prev => [newSession, ...prev]);
+        setActiveSessionId(newSession._id);
+        console.log("New session created:", newSession._id);
+        return newSession;
+      }
+    } catch (err) {
+      console.error("Failed to create session:", err);
+      toast.error("Could not create new chat session. Check backend.");
+      return null;
+    }
+  };
+
+  const switchSession = async (sessionId) => {
+    if (sessionId === activeSessionId) return;
+    setLoading(true);
+    setMessages([]); // Clear while loading
+    
+    try {
+      const res = await axios.get(`http://localhost:3001/chat/sessions/${sessionId}`);
+      const session = res.data.session;
+      if (session) {
+        setActiveSessionId(session._id);
+        setMessages(session.messages || []);
+        setSources([]); // Context is usually fresh per session in this flow
+        setError("");
+      }
+    } catch (err) {
+      console.error("Failed to switch session:", err);
+      toast.error("Failed to load chat history.");
+      setError("Failed to load session content");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteSession = async (sessionId) => {
+    try {
+      await axios.delete(`http://localhost:3001/chat/sessions/${sessionId}`);
+      setSessions(prev => prev.filter(s => s._id !== sessionId));
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+      toast.error("Failed to delete chat.");
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
 
   const sendMessage = async (message, context = "") => {
+    if (!message.trim()) return;
+    
     setLoading(true);
+    let currentSessionId = activeSessionId;
+
+    // If no active session, create one first
+    if (!currentSessionId) {
+      const session = await createNewSession(message.substring(0, 30) + "...");
+      if (session) {
+        currentSessionId = session._id;
+      } else {
+        setLoading(false);
+        return; // Failed to create session
+      }
+    }
+
     try {
-      // Add user message
+      // Add user message locally
       const userMessage = {
         role: "user",
         content: message,
@@ -18,13 +110,13 @@ export const useChat = () => {
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Send to dedicated chat endpoint
       const response = await axios.post(
         "http://localhost:3001/chat",
         {
           message,
           context,
           docIds: sources.map((s) => s.id),
+          sessionId: currentSessionId
         },
         { timeout: 60000 }
       );
@@ -36,16 +128,13 @@ export const useChat = () => {
       };
       setMessages((prev) => [...prev, aiMessage]);
       setError("");
+      
+      // Refresh list to update titles if needed
+      fetchSessions();
     } catch (err) {
       console.error("Chat error:", err);
-      const errorMessage = {
-        role: "assistant",
-        content:
-          "Sorry, I'm having trouble connecting to the AI. Please make sure Ollama is running.",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      setError("Chat service unavailable. Please ensure Ollama is running.");
+      setError("Assistant is temporarily unavailable.");
+      toast.error("Message failed to send.");
     } finally {
       setLoading(false);
     }
@@ -61,13 +150,9 @@ export const useChat = () => {
       });
       const { id, doc } = res.data;
       setSources((prev) => [...prev, { id, name: doc.name, type: doc.type }]);
-      setError("");
       return true;
     } catch (e) {
-      console.error("Attach file error:", e);
-      const errorMsg =
-        e.response?.data?.error || "Failed to attach file for chat";
-      setError(errorMsg);
+      toast.error("File attachment failed.");
       return false;
     }
   };
@@ -81,26 +166,16 @@ export const useChat = () => {
       );
       const { id, doc } = res.data;
       setSources((prev) => [...prev, { id, name: doc.name, type: doc.type }]);
-      setError("");
       return true;
     } catch (e) {
-      console.error("Add text error:", e);
-      const errorMsg = e.response?.data?.error || "Failed to add text for chat";
-      setError(errorMsg);
+      toast.error("Failed to add context source.");
       return false;
     }
   };
 
   const removeSource = async (id) => {
-    try {
-      setSources((prev) => prev.filter((s) => s.id !== id));
-      // Best-effort delete on backend
-      await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
-      return true;
-    } catch (e) {
-      console.warn("Failed to remove source:", e?.message || e);
-      return false;
-    }
+    setSources((prev) => prev.filter((s) => s.id !== id));
+    await axios.delete(`http://localhost:3001/ingest/${id}`).catch(() => {});
   };
 
   return {
@@ -108,9 +183,15 @@ export const useChat = () => {
     error,
     messages,
     sources,
+    sessions,
+    activeSessionId,
     sendMessage,
     attachFile,
     addTextSource,
     removeSource,
+    createNewSession,
+    switchSession,
+    deleteSession,
+    refreshSessions: fetchSessions
   };
 };

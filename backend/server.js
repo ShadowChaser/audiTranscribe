@@ -86,7 +86,7 @@ app.use("/api", markdownRoutes);
 
 app.post("/chat", async (req, res) => {
   try {
-    const { message, context, docIds } = req.body || {};
+    const { message, context, docIds, sessionId } = req.body || {};
     if (
       !message ||
       typeof message !== "string" ||
@@ -114,6 +114,19 @@ app.post("/chat", async (req, res) => {
       docsContext = parts.join("\n\n");
     }
 
+    // If sessionId is provided, fetch previous messages
+    let sessionMessages = [];
+    let chatSession = null;
+    if (sessionId) {
+      chatSession = await ChatSession.findById(sessionId);
+      if (chatSession) {
+        sessionMessages = chatSession.messages.slice(-10).map(m => ({
+          role: m.role,
+          content: m.content
+        }));
+      }
+    }
+
     const systemPrompt = `You are AI Transcriber, a helpful assistant for audio transcription, meeting notes, and document Q&A. You help users understand and work with their recordings and uploaded documents.
 
 Available context:
@@ -130,6 +143,12 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
       return res.status(500).json({ error: "GROQ_API_KEY not configured in .env" });
     }
 
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...sessionMessages,
+      { role: "user", content: message },
+    ];
+
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -138,10 +157,7 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
       },
       body: JSON.stringify({
         model: groqModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message },
-        ],
+        messages,
         temperature: 0.7,
         max_tokens: 1024,
       }),
@@ -158,6 +174,69 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
 
     const data = await response.json();
     const reply = data.choices?.[0]?.message?.content || "";
+
+    // Save to session if it exists
+    if (sessionId) {
+      try {
+        console.log(`💾 Persisting messages to session ${sessionId}...`);
+        const updatedSession = await ChatSession.findByIdAndUpdate(
+          sessionId,
+          {
+            $push: {
+              messages: [
+                { role: "user", content: message, timestamp: new Date() },
+                { role: "assistant", content: reply, timestamp: new Date() }
+              ]
+            },
+            $set: { lastActivity: new Date() }
+          },
+          { new: true }
+        );
+        
+        if (updatedSession) {
+          console.log(`✅ Session ${sessionId} updated. Total messages: ${updatedSession.messages.length}`);
+          
+          // Generate dynamic title if this is the first message
+          if (updatedSession.messages.length === 2 && updatedSession.title === "New Chat") {
+            try {
+              console.log(`🪄 Generating dynamic title for session ${sessionId}...`);
+              const titleResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${groqApiKey}`,
+                },
+                body: JSON.stringify({
+                  model: groqModel,
+                  messages: [
+                    { role: "system", content: "Generate a very short, concise title (max 5 words) for a chat that begins with this user message. Output ONLY the title text, no quotes or punctuation." },
+                    { role: "user", content: message }
+                  ],
+                  temperature: 0.5,
+                  max_tokens: 20
+                }),
+              });
+              
+              if (titleResponse.ok) {
+                const titleData = await titleResponse.json();
+                const newTitle = titleData.choices?.[0]?.message?.content?.trim();
+                if (newTitle) {
+                  await ChatSession.findByIdAndUpdate(sessionId, { title: newTitle });
+                  console.log(`✨ Dynamic title set: "${newTitle}"`);
+                }
+              }
+            } catch (titleError) {
+              console.warn("Failed to generate dynamic title:", titleError);
+            }
+          }
+        } else {
+          console.warn(`⚠️ Session ID ${sessionId} not found for persistence.`);
+        }
+      } catch (saveError) {
+        console.error(`❌ Error saving messages to session ${sessionId}:`, saveError);
+      }
+    }
+
     return res.json({ response: reply });
   } catch (e) {
     console.error("Chat error:", e);
@@ -165,6 +244,45 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
       error: "Chat service unavailable. Check your GROQ_API_KEY in .env",
       details: e.message,
     });
+  }
+});
+
+// Chat Session Routes
+app.get("/chat/sessions", async (req, res) => {
+  try {
+    const sessions = await dbUtils.getChatSessions();
+    res.json({ sessions });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to list sessions" });
+  }
+});
+
+app.post("/chat/sessions", async (req, res) => {
+  try {
+    const { title } = req.body;
+    const session = await dbUtils.createChatSession({ title: title || "New Chat" });
+    res.json({ session });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create session" });
+  }
+});
+
+app.get("/chat/sessions/:id", async (req, res) => {
+  try {
+    const session = await ChatSession.findById(req.params.id);
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    res.json({ session });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch session" });
+  }
+});
+
+app.delete("/chat/sessions/:id", async (req, res) => {
+  try {
+    await ChatSession.findByIdAndUpdate(req.params.id, { isActive: false });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete session" });
   }
 });
 

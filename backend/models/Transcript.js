@@ -64,7 +64,6 @@ const transcriptSchema = new mongoose.Schema({
 
 // Text search index for searching through transcript content
 transcriptSchema.index({ content: 'text' });
-transcriptSchema.index({ recordingId: 1 });
 transcriptSchema.index({ createdAt: -1 });
 transcriptSchema.index({ tags: 1 });
 

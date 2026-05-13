@@ -53,7 +53,6 @@ const recordingSchema = new mongoose.Schema({
 
 // Index for efficient queries
 recordingSchema.index({ createdAt: -1 });
-recordingSchema.index({ filename: 1 });
 recordingSchema.index({ transcriptionStatus: 1 });
 
 module.exports = mongoose.model('Recording', recordingSchema);

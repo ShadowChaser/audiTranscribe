@@ -36,6 +36,27 @@ const io = socketIo(server, {
   },
 });
 
+// Helper to resolve Python path across platforms (Windows vs. Unix)
+function getPythonPath() {
+  // Allow override via env
+  const envPath = process.env.PYTHON_PATH;
+  if (envPath && fs.existsSync(envPath)) return envPath;
+
+  const projectRoot = path.join(__dirname, "..");
+
+  if (process.platform === "win32") {
+    const winVenv = path.join(projectRoot, "venv", "Scripts", "python.exe");
+    if (fs.existsSync(winVenv)) return winVenv;
+    // Fallbacks on Windows
+    return "python"; // rely on PATH
+  } else {
+    const posixVenv = path.join(projectRoot, "venv", "bin", "python");
+    if (fs.existsSync(posixVenv)) return posixVenv;
+    // Common fallback on Unix
+    return fs.existsSync("/usr/bin/python3") ? "python3" : "python";
+  }
+}
+
 // Import routes
 const healthRoutes = require("./routes/health");
 const markdownRoutes = require("./routes/markdown");
@@ -74,7 +95,7 @@ app.post("/chat", async (req, res) => {
       return res.status(400).json({ error: "Missing message" });
     }
 
-    // Build doc context from selected ingested docs (updated for MongoDB)
+    // Build doc context from selected ingested docs
     let docsContext = "";
     if (Array.isArray(docIds) && docIds.length > 0) {
       const parts = [];
@@ -102,46 +123,46 @@ Selected documents:\n${docsContext || "(none)"}
 
 Respond conversationally and helpfully. If the user asks about transcripts or recordings, reference the context provided.`;
 
-    const payload = {
-      model: "llama3",
-      prompt: `${systemPrompt}\n\nUser: ${message}\n\nAssistant:`,
-      stream: false,
-      options: {
-        temperature: 0.7,
-        max_tokens: 500,
-      },
-    };
+    const groqApiKey = process.env.GROQ_API_KEY;
+    const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
-    const ollamaUrl = "http://localhost:11434/api/generate";
-    const doFetch = typeof fetch !== "undefined" ? fetch : null;
-    if (!doFetch) {
-      return res.status(500).json({
-        error:
-          "fetch is not available in this Node runtime. Please use Node 18+ or install node-fetch.",
-      });
+    if (!groqApiKey) {
+      return res.status(500).json({ error: "GROQ_API_KEY not configured in .env" });
     }
 
-    const response = await doFetch(ollamaUrl, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+        temperature: 0.7,
+        max_tokens: 1024,
+      }),
     });
 
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
       return res.status(502).json({
-        error: "Ollama request failed",
+        error: "Groq API request failed",
         status: response.status,
         details: errText,
       });
     }
 
     const data = await response.json();
-    return res.json({ response: data.response || "" });
+    const reply = data.choices?.[0]?.message?.content || "";
+    return res.json({ response: reply });
   } catch (e) {
     console.error("Chat error:", e);
     return res.status(503).json({
-      error: "Chat service unavailable. Is Ollama running on port 11434?",
+      error: "Chat service unavailable. Check your GROQ_API_KEY in .env",
       details: e.message,
     });
   }
@@ -150,7 +171,7 @@ Respond conversationally and helpfully. If the user asks about transcripts or re
 // Import prompts
 const { getPromptForStyle, formatPrompt } = require('./config/prompts');
 
-// Summarization endpoint using local Ollama
+// Summarization endpoint using Groq AI
 app.post("/summarize", async (req, res) => {
   try {
     const { text, style } = req.body || {};
@@ -158,69 +179,55 @@ app.post("/summarize", async (req, res) => {
       return res.status(400).json({ error: "Missing text to summarize" });
     }
 
-    // Debug: log inputs
-    try {
-      console.log("[SUMMARIZE] style:", style || "(none)");
-      console.log("[SUMMARIZE] text length:", text.length);
-    } catch {}
+    console.log("[SUMMARIZE] style:", style || "(none)");
+    console.log("[SUMMARIZE] text length:", text.length);
 
     // Get the appropriate prompt based on style
     const promptTemplate = getPromptForStyle(style);
     const promptPrefix = formatPrompt(promptTemplate, text);
 
-    try {
-      console.log("[SUMMARIZE] prompt length:", promptPrefix.length);
-    } catch {}
+    console.log("[SUMMARIZE] prompt length:", promptPrefix.length);
 
-    const payload = {
-      model: "llama3",
-      prompt: promptPrefix,
-      stream: false,
-      options: {
-        temperature: 0.2,
-      },
-    };
+    const groqApiKey = process.env.GROQ_API_KEY;
+    const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
-    const ollamaUrl = "http://localhost:11434/api/generate";
-
-    // Prefer global fetch (Node 18+)
-    const doFetch = typeof fetch !== "undefined" ? fetch : null;
-    if (!doFetch) {
-      return res.status(500).json({
-        error:
-          "fetch is not available in this Node runtime. Please use Node 18+ or install node-fetch.",
-      });
+    if (!groqApiKey) {
+      return res.status(500).json({ error: "GROQ_API_KEY not configured in .env" });
     }
 
-    const response = await doFetch(ollamaUrl, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        messages: [
+          { role: "user", content: promptPrefix },
+        ],
+        temperature: 0.2,
+        max_tokens: 2048,
+      }),
     });
 
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
       return res.status(502).json({
-        error: "Ollama request failed",
+        error: "Groq API request failed",
         status: response.status,
         details: errText,
       });
     }
 
     const data = await response.json();
-    try {
-      console.log(
-        "[SUMMARIZE] model response length:",
-        (data.response || "").length
-      );
-    } catch {}
-    return res.json({ summary: data.response || "" });
+    const summary = data.choices?.[0]?.message?.content || "";
+    console.log("[SUMMARIZE] response length:", summary.length);
+    return res.json({ summary });
   } catch (e) {
     console.error("Summarization error:", e);
-    // Common case: Ollama not running on 11434
     return res.status(503).json({
-      error:
-        "Summarization service unavailable. Is Ollama running on port 11434?",
+      error: "Summarization service unavailable. Check your GROQ_API_KEY in .env",
       details: e.message,
     });
   }
@@ -317,12 +324,14 @@ app.post("/upload", upload.single("audio"), async (req, res) => {
       transcriptionStatus: "processing",
     });
 
-    // Run Whisper via Python (using virtual environment)
-    const pythonPath = path.join(__dirname, "../venv/bin/python");
+    // Run Whisper via Python (resolve cross-platform venv path)
+    const pythonPath = getPythonPath();
+    const whisperScript = path.join(__dirname, "whisper.py");
     const startTime = Date.now();
 
     exec(
-      `"${pythonPath}" whisper.py "${filePath}" "${outputFile}"`,
+      `"${pythonPath}" "${whisperScript}" "${filePath}" "${outputFile}"`,
+      { timeout: 0, maxBuffer: 64 * 1024 * 1024 },
       async (err, stdout, stderr) => {
         const processingTime = Date.now() - startTime;
 
@@ -474,12 +483,13 @@ app.post("/transcribe/:filename", async (req, res) => {
       transcriptionStatus: "processing",
     });
 
-    // Run Whisper via Python (using virtual environment)
-    const pythonPath = path.join(__dirname, "../venv/bin/python");
+    // Run Whisper via Python (resolve cross-platform venv path)
+    const pythonPath = getPythonPath();
+    const whisperScript = path.join(__dirname, "whisper.py");
     const startTime = Date.now();
 
     exec(
-      `"${pythonPath}" whisper.py "${filePath}" "${outputFile}"`,
+      `"${pythonPath}" "${whisperScript}" "${filePath}" "${outputFile}"`,
       async (err, stdout, stderr) => {
         const processingTime = Date.now() - startTime;
 
@@ -1230,12 +1240,14 @@ app.post("/recordings/external", upload.single("audio"), async (req, res) => {
         transcriptionStatus: "processing",
       });
 
-      // Run Whisper via Python (using virtual environment)
-      const pythonPath = path.join(__dirname, "../venv/bin/python");
+      // Run Whisper via Python (resolve cross-platform venv path)
+      const pythonPath = getPythonPath();
+      const whisperScript = path.join(__dirname, "whisper.py");
       const startTime = Date.now();
 
       exec(
-        `"${pythonPath}" whisper.py "${filePath}" "${outputFile}"`,
+        `"${pythonPath}" "${whisperScript}" "${filePath}" "${outputFile}"`,
+        { timeout: 0, maxBuffer: 64 * 1024 * 1024 },
         async (err, stdout, stderr) => {
           const processingTime = Date.now() - startTime;
 

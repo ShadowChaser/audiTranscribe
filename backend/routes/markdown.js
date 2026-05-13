@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { marked } = require('marked');
+// marked@16 is ESM-only. Use dynamic import inside handlers to keep this file CommonJS.
 
 // Parse JSON bodies for this router
 router.use(express.json());
 
 // Convert markdown to HTML
-router.post('/markdown-to-html', (req, res) => {
+router.post('/markdown-to-html', async (req, res) => {
   try {
     console.log('Received request to convert markdown to HTML');
     console.log('Request body:', req.body);
@@ -24,6 +24,9 @@ router.post('/markdown-to-html', (req, res) => {
     
     console.log('Markdown content received, length:', markdown.length);
     
+    // Dynamically import ESM module
+    const { marked } = await import('marked');
+
     // Convert markdown to HTML
     const html = marked.parse(markdown, {
       gfm: true,

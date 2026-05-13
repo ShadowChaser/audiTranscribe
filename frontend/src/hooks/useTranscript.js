@@ -23,7 +23,8 @@ export const useTranscript = () => {
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
-          timeout: 300000,
+          // 0 means no timeout in Axios; long transcriptions may exceed 5 minutes
+          timeout: 0,
         }
       );
 
@@ -32,7 +33,7 @@ export const useTranscript = () => {
           .split("/")
           .pop()}`,
         {
-          timeout: 300000,
+          timeout: 0,
         }
       );
 
@@ -69,7 +70,7 @@ export const useTranscript = () => {
           `http://localhost:3001/transcribe/${filename}`,
           {},
           {
-            timeout: 300000, // 5 minutes timeout for transcription
+            timeout: 0, // allow long-running transcription
           }
         );
 
@@ -101,7 +102,7 @@ export const useTranscript = () => {
             headers: {
               "Content-Type": "multipart/form-data",
             },
-            timeout: 300000, // 5 minutes timeout
+            timeout: 0, // allow long-running transcription
           }
         );
 

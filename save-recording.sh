@@ -7,15 +7,14 @@
 # 
 # Usage: ./save-recording.sh <audio_file> [auto-transcribe] [custom_name]
 # 
-# Examples:
-#   ./save-recording.sh ~/Desktop/recording.wav
-#   ./save-recording.sh ~/Desktop/recording.m4a true
-#   ./save-recording.sh ~/Desktop/recording.mp3 true "My Meeting"
+# Environment Variables:
+#   SCRIBEFLOW_API_URL: Base URL of the backend (default: http://localhost:3001)
 
 set -e
 
 # Configuration
-BACKEND_URL="http://localhost:3001/recordings/external"
+BASE_URL="${SCRIBEFLOW_API_URL:-http://localhost:3001}"
+BACKEND_URL="${BASE_URL%/}/recordings/external"
 
 # Check arguments
 if [ $# -lt 1 ]; then
@@ -45,6 +44,7 @@ FILENAME=$(basename "$AUDIO_FILE")
 DISPLAY_NAME="${CUSTOM_NAME:-$FILENAME}"
 
 echo "📤 Uploading recording: $DISPLAY_NAME"
+echo "🔗 Target: $BASE_URL"
 
 if [ "$AUTO_TRANSCRIBE" = "true" ]; then
     echo "🤖 Auto-transcription enabled"
@@ -91,8 +91,7 @@ else
     
     if [ "$HTTP_CODE" -eq 000 ] || [ -z "$HTTP_CODE" ]; then
         echo ""
-        echo "💡 Make sure the backend server is running:"
-        echo "   cd backend && node server.js"
+        echo "💡 Make sure the backend server is running and accessible at $BASE_URL"
     fi
     
     exit 1

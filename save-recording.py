@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 
-def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, custom_name=None):
+def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, custom_name=None, server_url=None):
     """
     Save an audio recording to the transcribe app backend.
     
@@ -29,10 +29,15 @@ def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, cus
         audio_file_path (str): Path to the audio file
         auto_transcribe (bool): Whether to automatically transcribe the recording
         custom_name (str): Custom name for the recording
+        server_url (str): Base URL of the backend
     
     Returns:
         dict: Response from the server
     """
+    # Use provided server_url or environment variable or default
+    base_url = server_url or os.environ.get('SCRIBEFLOW_API_URL', 'http://localhost:3001')
+    endpoint_url = f"{base_url.rstrip('/')}/recordings/external"
+
     # Validate file exists
     if not os.path.exists(audio_file_path):
         raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
@@ -40,9 +45,6 @@ def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, cus
     # Get file info
     file_path = Path(audio_file_path)
     file_name = custom_name or file_path.name
-    
-    # Prepare the request
-    url = "http://localhost:3001/recordings/external"
     
     try:
         with open(audio_file_path, 'rb') as audio_file:
@@ -55,10 +57,11 @@ def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, cus
             }
             
             print(f"📤 Uploading recording: {file_name}")
+            print(f"🔗 Target: {base_url}")
             if auto_transcribe:
                 print("🤖 Auto-transcription enabled")
             
-            response = requests.post(url, files=files, data=data, timeout=30)
+            response = requests.post(endpoint_url, files=files, data=data, timeout=30)
             
             if response.status_code == 200:
                 result = response.json()
@@ -88,8 +91,8 @@ def save_recording_to_transcribe_app(audio_file_path, auto_transcribe=False, cus
                 
     except requests.exceptions.ConnectionError:
         raise Exception(
-            "❌ Could not connect to transcribe app backend.\n"
-            "Make sure the backend server is running on http://localhost:3001"
+            f"❌ Could not connect to transcribe app backend at {base_url}.\n"
+            "Make sure the backend server is running and accessible."
         )
     except requests.exceptions.Timeout:
         raise Exception("❌ Request timed out. The file might be too large.")
@@ -128,21 +131,17 @@ Supported audio formats:
     
     parser.add_argument(
         '--server-url',
-        default='http://localhost:3001',
-        help='Base URL of the transcribe app backend (default: %(default)s)'
+        help='Base URL of the transcribe app backend (default: http://localhost:3001 or SCRIBEFLOW_API_URL env var)'
     )
     
     args = parser.parse_args()
     
     try:
-        # Update the URL if custom server URL is provided
-        global url
-        url = f"{args.server_url.rstrip('/')}/recordings/external"
-        
         result = save_recording_to_transcribe_app(
             args.audio_file,
             args.auto_transcribe,
-            args.name
+            args.name,
+            args.server_url
         )
         
         print(f"\n🎉 Success! Your recording is now available in the Transcripts page.")

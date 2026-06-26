@@ -75,7 +75,7 @@ export default function SavedRecordings({
 
               <audio
                 controls
-                src={`${API_BASE_URL}/uploads/${recording.filename}`}
+                src={recording.cloudinaryUrl || `${API_BASE_URL}/uploads/${recording.filename}`}
                 className="audio-player"
               />
 
@@ -83,7 +83,7 @@ export default function SavedRecordings({
                 <button
                   onClick={() => {
                     const link = document.createElement("a");
-                    link.href = `${API_BASE_URL}/uploads/${recording.filename}`;
+                    link.href = recording.cloudinaryUrl || `${API_BASE_URL}/uploads/${recording.filename}`;
                     link.download = recording.filename;
                     link.click();
                   }}

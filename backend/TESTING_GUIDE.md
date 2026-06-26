@@ -100,9 +100,9 @@ curl -X POST "http://localhost:3001/recordings/bulk-delete" \
 
 ### Test 3: Health Check
 ```bash
-curl "http://localhost:3001/health"
-curl "http://localhost:3001/health/endpoints"
-curl "http://localhost:3001/health/database"
+curl "YOUR_API_URL/health"
+curl "YOUR_API_URL/health/endpoints"
+curl "YOUR_API_URL/health/database"
 ```
 
 ### Test 4: Summary Operations

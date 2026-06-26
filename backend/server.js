@@ -9,6 +9,14 @@ const socketIo = require("socket.io");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const { v4: uuidv4 } = require("uuid");
+const cloudinary = require("cloudinary").v2;
+
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // MongoDB imports
 require("dotenv").config();
@@ -387,6 +395,7 @@ app.get("/recordings", async (req, res) => {
       transcriptionStatus: recording.transcriptionStatus,
       language: recording.language,
       summary: recording.summary, // Include summary field
+      cloudinaryUrl: recording.cloudinaryUrl, // Include remote URL
       _id: recording._id,
     }));
 
@@ -427,10 +436,22 @@ app.post("/upload", upload.single("audio"), async (req, res) => {
   }
 
   try {
-    // Create recording record in database
-    const recording = await dbUtils.createRecording(req.file);
-
     const filePath = path.join(__dirname, req.file.path);
+    
+    // Upload to Cloudinary
+    console.log(`☁️ Uploading ${req.file.originalname} to Cloudinary...`);
+    const cloudinaryResponse = await cloudinary.uploader.upload(filePath, {
+      resource_type: "video", // Cloudinary uses "video" for audio files
+      folder: "scribeflow_recordings",
+      public_id: req.file.filename
+    });
+    
+    // Create recording record in database with Cloudinary URL
+    const recording = await dbUtils.createRecording({
+      ...req.file,
+      cloudinaryUrl: cloudinaryResponse.secure_url
+    });
+
     const outputFile = path.join(
       __dirname,
       `transcripts/${req.file.filename}.txt`
@@ -438,6 +459,7 @@ app.post("/upload", upload.single("audio"), async (req, res) => {
 
     console.log(`📝 Processing audio file: ${filePath}`);
     console.log(`📊 Recording saved to database with ID: ${recording._id}`);
+    console.log(`🔗 Cloudinary URL: ${cloudinaryResponse.secure_url}`);
 
     // Update recording status to processing
     await Recording.findByIdAndUpdate(recording._id, {

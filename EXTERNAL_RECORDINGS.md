@@ -140,7 +140,7 @@ saveToTranscribeApp('recording.wav', 'My Recording', true)
 
 Save an external recording to the transcribe app.
 
-**Endpoint:** `http://localhost:3001/recordings/external`
+**Endpoint:** `YOUR_API_URL/recordings/external`
 
 **Method:** `POST`
 
@@ -313,7 +313,7 @@ if __name__ == "__main__":
 3. **Check backend logs** - look for transcription error messages
 
 ### Connection Errors
-1. **Verify backend is running** - `curl http://localhost:3001/recordings/external`
+1. **Verify backend is running** - `curl YOUR_API_URL/health`
 2. **Check port conflicts** - ensure nothing else is using port 3001
 3. **Firewall settings** - ensure local connections are allowed
 

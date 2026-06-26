@@ -29,6 +29,7 @@ async function createRecording(fileData) {
       mimeType: fileData.mimetype || 'audio/webm',
       size: fileData.size || 0,
       filePath: fileData.path || `uploads/${fileData.filename}`,
+      cloudinaryUrl: fileData.cloudinaryUrl || null,
       transcriptionStatus: 'pending'
     });
     

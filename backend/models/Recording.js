@@ -46,6 +46,10 @@ const recordingSchema = new mongoose.Schema({
   languageProbability: {
     type: Number,
     default: null
+  },
+  cloudinaryUrl: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt automatically
